@@ -27,7 +27,7 @@ fn from_vec<T: copy>(v: &[T]) -> @list<T> {
  * * z - The initial value
  * * f - The function to apply
  */
-fn foldl<T: copy, U>(z: T, ls: @list<U>, f: fn(T, U) -> T) -> T {
+fn foldl<T, U>(+z: T, ls: @list<U>, f: fn(T, U) -> T) -> T {
     let mut accum: T = z;
     do iter(ls) |elt| { accum = f(accum, elt);}
     accum
@@ -54,7 +54,7 @@ fn find<T: copy>(ls: @list<T>, f: fn(T) -> bool) -> option<T> {
 }
 
 /// Returns true if a list contains an element with the given value
-fn has<T: copy>(ls: @list<T>, elt: T) -> bool {
+fn has<T>(ls: @list<T>, elt: T) -> bool {
     for each(ls) |e| {
         if e == elt { ret true; }
     }
@@ -62,7 +62,7 @@ fn has<T: copy>(ls: @list<T>, elt: T) -> bool {
 }
 
 /// Returns true if the list is empty
-pure fn is_empty<T: copy>(ls: @list<T>) -> bool {
+pure fn is_empty<T>(ls: @list<T>) -> bool {
     alt *ls {
         nil { true }
         _ { false }
@@ -70,7 +70,7 @@ pure fn is_empty<T: copy>(ls: @list<T>) -> bool {
 }
 
 /// Returns true if the list is not empty
-pure fn is_not_empty<T: copy>(ls: @list<T>) -> bool {
+pure fn is_not_empty<T>(ls: @list<T>) -> bool {
     ret !is_empty(ls);
 }
 
@@ -103,8 +103,10 @@ pure fn append<T: copy>(l: @list<T>, m: @list<T>) -> @list<T> {
 }
 
 /// Push an element to the front of a list
-fn push<T: copy>(&l: list<T>, v: T) {
-    l = cons(v, @l);
+fn push<T>(&l: list<T>, +v: T) {
+    let mut ll = nil;
+    ll <-> l;
+    l = cons(v, @ll);
 }
 
 /// Iterate over a list
