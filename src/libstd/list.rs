@@ -10,9 +10,41 @@ enum list<T> {
 }
 
 /// Create a list from a vector
-fn from_vec<T: copy>(v: &[T]) -> @list<T> {
+pure fn from_vec<T: copy>(v: &[T]) -> @list<T> {
     vec::foldr(v, @nil::<T>, |h, t| @cons(h, t))
 }
+
+/// Create a list from a vector in reverse order
+pure fn from_vec_rev<T: copy>(v: &[T]) -> @list<T> {
+    vec::foldl(@nil::<T>, v, |t, h| @cons(h, t))
+}
+
+
+/// Create a vector from a list
+pure fn to_vec<T: copy>(l: @list<T>) -> ~[T] {
+    let mut l = l;
+    let mut acc = ~[];
+    loop {
+        alt *l {
+          nil { break }
+          cons(h, t) { unchecked { vec::push(acc, h); } l = t }
+        }
+    }
+    acc
+}
+
+/// Create a vector from a list in reverse order
+pure fn to_vec_rev<T: copy>(l: @list<T>) -> ~[T] {
+    let v = to_vec(l);
+    vec::as_mut(v, |mv| unchecked { vec::reverse(mv) })
+}
+
+
+/// Return a list with the order of elements reversed
+pure fn reversed<T: copy>(l: @list<T>) -> @list<T> {
+    from_vec_rev(to_vec(l))
+}
+
 
 /**
  * Left fold
@@ -172,6 +204,38 @@ mod tests {
     fn test_from_vec_empty() {
         let empty : @list::list<int> = from_vec(~[]);
         assert (empty == @list::nil::<int>);
+    }
+
+    #[test]
+    fn test_from_vec_rev() {
+        let l = from_vec_rev(~[0, 1, 2]);
+
+        assert (head(l) == 2);
+
+        let tail_l = tail(l);
+        assert (head(tail_l) == 1);
+
+        let tail_tail_l = tail(tail_l);
+        assert (head(tail_tail_l) == 0);
+    }
+
+    #[test]
+    fn test_from_vec_rev_empty() {
+        let empty : @list::list<int> = from_vec_rev(~[]);
+        assert (empty == @list::nil::<int>);
+    }
+
+    #[test]
+    fn test_reversed() {
+        let l = reversed(from_vec(~[0, 1, 2]));
+
+        assert (head(l) == 2);
+
+        let tail_l = tail(l);
+        assert (head(tail_l) == 1);
+
+        let tail_tail_l = tail(tail_l);
+        assert (head(tail_tail_l) == 0);
     }
 
     #[test]

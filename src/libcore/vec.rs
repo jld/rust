@@ -20,6 +20,7 @@ export from_elem;
 export build, build_sized;
 export to_mut;
 export from_mut;
+export as_mut;
 export head;
 export tail;
 export tailn;
@@ -263,6 +264,13 @@ pure fn from_mut<T>(+v: ~[mut T]) -> ~[T] {
     unsafe { ::unsafe::transmute(v) }
 }
 
+/// Temporarily treat a unique immutable vector as mutable.
+pure fn as_mut<T>(+v: ~[T], f: fn(~[mut T])) -> ~[T] {
+    let v = to_mut(v);
+    f(v);
+    from_mut(v)
+}
+
 // Accessors
 
 /// Returns the first element of a vector
@@ -456,9 +464,24 @@ fn unshift<T>(&v: ~[T], +x: T) {
     }
 }
 
+/// Destructively iterate over a vector
 fn consume<T>(+v: ~[T], f: fn(uint, +T)) unsafe {
     do unpack_slice(v) |p, ln| {
         for uint::range(0, ln) |i| {
+            let x <- *ptr::offset(p, i);
+            f(i, x);
+        }
+    }
+
+    unsafe::set_len(v, 0);
+}
+
+/// Destructively iterate over a vector, backwards
+fn rconsume<T>(+v: ~[T], f: fn(uint, +T)) unsafe {
+    do unpack_slice(v) |p, ln| {
+        let mut i = ln;
+        while i > 0 {
+            i -= 1;
             let x <- *ptr::offset(p, i);
             f(i, x);
         }
@@ -2032,6 +2055,17 @@ mod tests {
     }
 
     #[test]
+    fn test_consume() {
+        let mut i = 0;
+        consume(~[1, 2, 3], |j, v| {
+            if i == 0 { assert v == 1; }
+            assert j + 1u == v as uint;
+            i += v;
+        });
+        assert i == 6;
+    }
+
+    #[test]
     fn test_riter_empty() {
         let mut i = 0;
         riter::<int>(~[], |_v| i += 1);
@@ -2052,6 +2086,17 @@ mod tests {
     fn test_riteri() {
         let mut i = 0;
         riteri(~[0, 1, 2], |j, v| {
+            if i == 0 { assert v == 2; }
+            assert j == v as uint;
+            i += v;
+        });
+        assert i == 3;
+    }
+
+    #[test]
+    fn test_rconsume() {
+        let mut i = 0;
+        rconsume(~[0, 1, 2], |j, v| {
             if i == 0 { assert v == 2; }
             assert j == v as uint;
             i += v;
@@ -2431,6 +2476,22 @@ mod tests {
             let x_imm = from_mut(x);
             let addr_imm = unsafe::to_ptr(x_imm);
             assert addr == addr_imm;
+        }
+    }
+
+    #[test]
+    fn as_mut_no_copy() {
+        unsafe {
+            let x = ~[1, 2, 3];
+            let addr_before = unsafe::to_ptr(x);
+            let mut addr_imm_opt = none;
+            let x = do as_mut(x) |x_mut| {
+                addr_imm_opt = some(unsafe::to_ptr(x_mut))
+            };
+            let addr_imm = option::unwrap(addr_imm_opt);
+            let addr_after = unsafe::to_ptr(x);
+            assert addr_before == addr_imm;
+            assert addr_imm == addr_after;
         }
     }
 
