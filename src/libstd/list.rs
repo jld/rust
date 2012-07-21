@@ -121,12 +121,96 @@ pure fn tail<T: copy>(ls: @list<T>) -> @list<T> {
     }
 }
 
-/// Returns the first element of a list
-pure fn head<T: copy>(ls: @list<T>) -> T {
-    alt check *ls { cons(hd, _) { hd } }
+/*
+ * Returns all but the first `n` elements of a list, or
+ * the empty list if there are fewer than `n`.
+ */
+pure fn tailn<T>(l: @list<T>, n: uint) -> @list<T> {
+    let mut l = l, n = n;
+    while n > 0 {
+        alt *l {
+          cons(_, tl) { l = tl; n -= 1 }
+          nil { break }
+        }
+    }
+    ret l;
 }
 
-/// Appends one list to another
+/// Returns the first element of a list
+pure fn head<T: copy>(ls: @list<T>) -> T {
+    alt head_opt(ls) {
+      some(x) { x }
+      none { fail ~"head: List is empty" }
+    }
+}
+
+/**
+ * Returns `some(x)` where `x` is the first element of the list,
+ * or `none` if the list is empty.
+ */
+pure fn head_opt<T: copy>(ls: @list<T>) -> option<T> {
+    alt *ls {
+      cons(x, _) { some(x) }
+      nil { none }
+    }
+}
+
+/// Returns the `n`th element of a list, or fails if the list is too short.
+pure fn nth<T: copy>(l: @list<T>, n: uint) -> T {
+    alt nth_opt(l, n) {
+      some(x) { x }
+      none { fail ~"nth: Too few elements in list" }
+    }
+}
+
+/**
+ * Returns `some(x)` where `x` is the `n`th element of a list,
+ * or `none` if the list is too short.
+ */
+pure fn nth_opt<T: copy>(l: @list<T>, n: uint) -> option<T> {
+    head_opt(tailn(l, n))
+}
+
+/**
+ * Returns the first `n` elements of a list, or the entire list if there are
+ * fewer than `n`.  In both cases the list elements are copied.
+ */
+pure fn headn<T: copy>(l: @list<T>, n: uint) -> @list<T> {
+    let (pfx, _sfx) = split_at(l, n);
+    pfx
+}
+
+/* Returns a copy of the elements from [`start`..`end`) from `l`.
+ * Will return fewer elements if the list ends before `end` (or none if
+ * before `start`).
+ */
+pure fn slice<T: copy>(l: @list<T>, start: uint, end: uint) -> @list<T> {
+    assert(start <= end);
+    headn(tailn(l, start), end - start)
+}
+
+/**
+ * Returns a tuple of the first `n` elements of a list and the remainder of
+ * that list; if the list has fewer than `n` elements, returns the entire list
+ * and the empty list.  See also `headn` and `tailn`; as with `head`, the list
+ * prefix is copied.
+ */
+pure fn split_at<T: copy>(l: @list<T>, n: uint) -> (@list<T>, @list<T>) {
+    let mut revpfx = ~[], sfx = l, n = n;
+    while n > 0 {
+        alt *sfx {
+          nil { break }
+          cons(hd, tl) {
+            unchecked { vec::push(revpfx, hd) }
+            sfx = tl;
+            n -= 1;
+          }
+        }
+    }
+    (from_vec(revpfx), sfx)
+}
+
+/// Appends one list to another; the first list's elements are copied.
 pure fn append<T: copy>(l: @list<T>, m: @list<T>) -> @list<T> {
     alt *l {
       nil { ret m; }
@@ -171,6 +255,17 @@ fn each<T>(l: @list<T>, f: fn(T) -> bool) {
 
 #[cfg(test)]
 mod tests {
+    fn assert_eq<T>(l1: @list<T>, l2: @list<T>) {
+        #debug("assert_eq(%?, %?)", l1, l2);
+        alt check *l1 {
+          nil if *l2 == nil { }
+          cons(h1, t1) {
+            alt check *l2 {
+              cons(h2, t2) if h1 == h2 { assert_eq(t1, t2) }
+            }
+          }
+        }
+    }
 
     #[test]
     fn test_is_empty() {
@@ -290,6 +385,95 @@ mod tests {
         assert (list::len(empty) == 0u);
     }
 
+    #[test]
+    fn test_head() {
+        let l = from_vec(~[0, 1, 2]);
+        assert(head(l) == 0);
+    }
+
+    #[test]
+    fn test_head_opt() {
+        let l = from_vec(~[0, 1, 2]);
+        let empty = @nil::<int>;
+        assert(head_opt(l) == some(0));
+        assert(head_opt(empty) == none);
+    }
+
+    #[test]
+    fn test_nth() {
+        let l = from_vec(~[4, 5, 6]);
+        assert(nth(l, 0) == 4);
+        assert(nth(l, 1) == 5);
+        assert(nth(l, 2) == 6);
+    }
+
+    #[test]
+    fn test_nth_opt() {
+        let l = from_vec(~[4, 5, 6]);
+        let empty = @nil::<int>;
+        assert(nth_opt(l, 0) == some(4));
+        assert(nth_opt(l, 1) == some(5));
+        assert(nth_opt(l, 2) == some(6));
+        assert(nth_opt(l, 3) == none);
+        assert(nth_opt(empty, 0) == none);
+        assert(nth_opt(empty, 23) == none);
+    }
+
+    #[test]
+    fn test_headn() {
+        let l = from_vec(~[4, 5, 6]);
+        let empty = @nil::<int>;
+        assert_eq(headn(l, 0), from_vec(~[]));
+        assert_eq(headn(l, 1), from_vec(~[4]));
+        assert_eq(headn(l, 2), from_vec(~[4, 5]));
+        assert_eq(headn(l, 3), from_vec(~[4, 5, 6]));
+        assert_eq(headn(l, 4), from_vec(~[4, 5, 6]));
+        assert_eq(headn(empty, 0), empty);
+        assert_eq(headn(empty, 23), empty);
+    }
+
+    #[test]
+    fn test_tailn() {
+        let l = from_vec(~[4, 5, 6]);
+        let empty = @nil::<int>;
+        assert_eq(tailn(l, 0), from_vec(~[4, 5, 6]));
+        assert_eq(tailn(l, 1), from_vec(~[5, 6]));
+        assert_eq(tailn(l, 2), from_vec(~[6]));
+        assert_eq(tailn(l, 3), from_vec(~[]));
+        assert_eq(tailn(l, 4), from_vec(~[]));
+        assert_eq(tailn(empty, 0), empty);
+        assert_eq(tailn(empty, 23), empty);
+    }
+
+    #[test]
+    fn test_slice() {
+        // Mostly covered by headn/tailn tests, but just in case:
+        let l = from_vec(~[4, 5, 6]);
+        assert_eq(slice(l, 1, 2), from_vec(~[5]));
+        assert_eq(slice(l, 2, 2), from_vec(~[]));
+        assert_eq(slice(l, 1, 9), from_vec(~[5, 6]));
+        assert_eq(slice(l, 6, 8), from_vec(~[]));
+    }
+
+    fn assert_eq2<T,U>(+ls: (@list<T>, @list<U>),
+                       l2: @list<T>, l3: @list<U>) {
+        let (l0, l1) <- ls;
+        assert_eq(l0, l2);
+        assert_eq(l1, l3);
+    }
+
+    #[test]
+    fn test_split_at() {
+        let l = from_vec(~[4, 5, 6]);
+        let empty = @nil::<int>;
+        assert_eq2(split_at(l, 0), from_vec(~[]), from_vec(~[4, 5, 6]));
+        assert_eq2(split_at(l, 1), from_vec(~[4]), from_vec(~[5, 6]));
+        assert_eq2(split_at(l, 2), from_vec(~[4, 5]), from_vec(~[6]));
+        assert_eq2(split_at(l, 3), from_vec(~[4, 5, 6]), from_vec(~[]));
+        assert_eq2(split_at(l, 4), from_vec(~[4, 5, 6]), from_vec(~[]));
+        assert_eq2(split_at(empty, 0), empty, empty);
+        assert_eq2(split_at(empty, 23), empty, empty);
+    }
 }
 
 // Local Variables:
