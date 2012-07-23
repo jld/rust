@@ -19,37 +19,51 @@ pure fn from_vec_rev<T: copy>(v: &[T]) -> @list<T> {
     vec::foldl(@nil::<T>, v, |t, h| @cons(h, t))
 }
 
-
 /// Create a vector from a list
 pure fn to_vec<T: copy>(l: @list<T>) -> ~[T] {
-    let mut l = l;
     let mut acc = ~[];
-    loop {
-        alt *l {
-          nil { break }
-          cons(h, t) { unchecked { vec::push(acc, h); } l = t }
-        }
+    do iter(l) |elt| {
+        unchecked { vec::push(acc, elt); }
     }
-    acc
 }
 
 /// Create a vector from a list in reverse order
 pure fn to_vec_rev<T: copy>(l: @list<T>) -> ~[T] {
+    // Copies each element twice but uses only O(sizeof(T)) temporary storage
     let v = to_vec(l);
     vec::as_mut(v, |mv| unchecked { vec::reverse(mv) })
 }
 
 
-/// Return a list with the order of elements reversed
-pure fn reversed<T: copy>(l: @list<T>) -> @list<T> {
-    from_vec_rev(to_vec(l))
+/**
+ * Return a vector of pointers to each `cons` in a list.  Useful for iterating
+ * over a list backwards, without allocating stack frames or making
+ * unnecessary copies of elements.
+ */
+pure fn conses<T>(l: @list<T>) -> ~[@list<T>] {
+    let mut l = l, acc = ~[];
+    loop {
+        alt *l {
+          nil { ret acc }
+          cons (_, t) { 
+            unchecked { vec::push(acc, l) }
+            l = t
+          }
+        }
+    }
+}
+
+
+/// Return a deep copy of a list
+pure fn deep_copy<T: copy>(l: @list<T>) -> @list<T> {
+    append(l, @nil)
 }
 
 
 /**
  * Left fold
  *
- * Applies `f` to `u` and the first element in the list, then applies `f` to
+ * Applies `f` to `z` and the first element in the list, then applies `f` to
  * the result of the previous call and the second element, and so on,
  * returning the accumulated result.
  *
@@ -59,9 +73,22 @@ pure fn reversed<T: copy>(l: @list<T>) -> @list<T> {
  * * z - The initial value
  * * f - The function to apply
  */
-fn foldl<T, U>(+z: T, ls: @list<U>, f: fn(T, U) -> T) -> T {
+pure fn foldl<T, U>(+z: T, ls: @list<U>, f: fn(T, U) -> T) -> T {
     let mut accum: T = z;
     do iter(ls) |elt| { accum = f(accum, elt);}
+    accum
+}
+
+/**
+ * Right fold
+ *
+ * Similar to left fold, but reversed: applies `f` to the last element of the
+ * list and `z`, then applies `f` to the penultimate element and the result of
+ * the previous call, and so on, returning the accumulated result.
+ */
+pure fn foldr<T, U>(ls: @list<T>, +z: U, f: fn(T, U) -> U) -> U {
+    let mut accum: U = z;
+    do riter(ls) |elt| { accum = f(elt, accum); }
     accum
 }
 
@@ -72,7 +99,7 @@ fn foldl<T, U>(+z: T, ls: @list<U>, f: fn(T, U) -> T) -> T {
  * When function `f` returns true then an option containing the element
  * is returned. If `f` matches no elements then none is returned.
  */
-fn find<T: copy>(ls: @list<T>, f: fn(T) -> bool) -> option<T> {
+pure fn find<T: copy>(ls: @list<T>, f: fn(T) -> bool) -> option<T> {
     let mut ls = ls;
     loop {
         ls = alt *ls {
@@ -86,7 +113,7 @@ fn find<T: copy>(ls: @list<T>, f: fn(T) -> bool) -> option<T> {
 }
 
 /// Returns true if a list contains an element with the given value
-fn has<T>(ls: @list<T>, elt: T) -> bool {
+pure fn has<T>(ls: @list<T>, elt: T) -> bool {
     for each(ls) |e| {
         if e == elt { ret true; }
     }
@@ -107,7 +134,7 @@ pure fn is_not_empty<T>(ls: @list<T>) -> bool {
 }
 
 /// Returns the length of a list
-fn len<T>(ls: @list<T>) -> uint {
+pure fn len<T>(ls: @list<T>) -> uint {
     let mut count = 0u;
     iter(ls, |_e| count += 1u);
     count
@@ -196,26 +223,36 @@ pure fn slice<T: copy>(l: @list<T>, start: uint, end: uint) -> @list<T> {
  * prefix is copied.
  */
 pure fn split_at<T: copy>(l: @list<T>, n: uint) -> (@list<T>, @list<T>) {
-    let mut revpfx = ~[], sfx = l, n = n;
+    let mut pfxc = ~[], sfx = l, n = n;
     while n > 0 {
         alt *sfx {
           nil { break }
-          cons(hd, tl) {
-            unchecked { vec::push(revpfx, hd) }
+          cons(_hd, tl) {
+            unchecked { vec::push(pfxc, sfx) }
             sfx = tl;
             n -= 1;
           }
         }
     }
-    (from_vec(revpfx), sfx)
+    (vec::foldr(pfxc, @nil, |c, t| @cons(head(c), t)), sfx)
 }
 
 /// Appends one list to another; the first list's elements are copied.
 pure fn append<T: copy>(l: @list<T>, m: @list<T>) -> @list<T> {
-    alt *l {
-      nil { ret m; }
-      cons(x, xs) { let rest = append(xs, m); ret @cons(x, rest); }
+    let mut acc = m;
+    do riter(l) |elt| {
+        acc = @cons(elt, acc)
+    } 
+    acc
+}
+
+/// Map a function over a list
+pure fn map<T, U>(l: @list<T>, f: fn(T) -> U) -> @list<U> {
+    let mut acc = @nil;
+    do riter(l) |elt| {
+        acc = @cons(f(elt), acc)
     }
+    acc
 }
 
 /// Push an element to the front of a list
@@ -226,7 +263,7 @@ fn push<T>(&l: list<T>, +v: T) {
 }
 
 /// Iterate over a list
-fn iter<T>(l: @list<T>, f: fn(T)) {
+pure fn iter<T>(l: @list<T>, f: fn(T)) {
     let mut cur = l;
     loop {
         cur = alt *cur {
@@ -239,8 +276,8 @@ fn iter<T>(l: @list<T>, f: fn(T)) {
     }
 }
 
-/// Iterate over a list
-fn each<T>(l: @list<T>, f: fn(T) -> bool) {
+/// Iterate over a list, with option to break
+pure fn each<T>(l: @list<T>, f: fn(T) -> bool) {
     let mut cur = l;
     loop {
         cur = alt *cur {
@@ -253,17 +290,33 @@ fn each<T>(l: @list<T>, f: fn(T) -> bool) {
     }
 }
 
+/// Iterate over a list, backwards
+pure fn riter<T>(l: @list<T>, f: fn(T)) {
+    do vec::riter(conses(l)) |c| {
+        alt check *c {
+          cons(h, _) { f(h) }
+        }
+    }
+}
+
+/// Iterate over a list, backwards, with option to break
+pure fn reach<T>(l: @list<T>, f: fn(T) -> bool) {
+    do vec::reach(conses(l)) |c| { 
+        alt check *c {
+          cons(h, _) { f(h) }
+        }
+    }
+}
+
+
+
 #[cfg(test)]
 mod tests {
-    fn assert_eq<T>(l1: @list<T>, l2: @list<T>) {
+    fn assert_eq<T: copy>(l1: @list<T>, l2: @list<T>) {
         #debug("assert_eq(%?, %?)", l1, l2);
-        alt check *l1 {
-          nil if *l2 == nil { }
-          cons(h1, t1) {
-            alt check *l2 {
-              cons(h2, t2) if h1 == h2 { assert_eq(t1, t2) }
-            }
-          }
+        alt check (*l1, *l2) {
+          (nil, nil) { }
+          (cons(h1, t1), cons(h2, t2)) if h1 == h2 { assert_eq(t1, t2) }
         }
     }
 
