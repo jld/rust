@@ -90,6 +90,7 @@ use core::prelude::*;
 use lib;
 use lib::llvm::ValueRef;
 use middle::borrowck::{RootInfo, root_map_key};
+use middle::trans::adt;
 use middle::trans::base::*;
 use middle::trans::build::*;
 use middle::trans::callee;
@@ -680,15 +681,17 @@ pub impl Datum {
                     return (None, bcx);
                 }
 
+                let repr = adt::represent_type(ccx, self.ty);
+                assert adt::is_newtypeish(&repr);
                 let ty = ty::subst(ccx.tcx, substs, variants[0].args[0]);
                 return match self.mode {
                     ByRef => {
                         // Recast lv.val as a pointer to the newtype
                         // rather than a ptr to the enum type.
-                        let llty = T_ptr(type_of::type_of(ccx, ty));
                         (
                             Some(Datum {
-                                val: PointerCast(bcx, self.val, llty),
+                                val: adt::trans_GEP(bcx, &repr, self.val,
+                                                    0, 0),
                                 ty: ty,
                                 mode: ByRef,
                                 source: ZeroMem
@@ -718,6 +721,8 @@ pub impl Datum {
                     return (None, bcx);
                 }
 
+                let repr = adt::represent_type(ccx, self.ty);
+                assert adt::is_newtypeish(&repr);
                 let ty = fields[0].mt.ty;
                 return match self.mode {
                     ByRef => {
@@ -727,7 +732,8 @@ pub impl Datum {
                         // destructors.
                         (
                             Some(Datum {
-                                val: GEPi(bcx, self.val, [0, 0, 0]),
+                                val: adt::trans_GEP(bcx, &repr, self.val,
+                                                    0, 0),
                                 ty: ty,
                                 mode: ByRef,
                                 source: ZeroMem
