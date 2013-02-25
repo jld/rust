@@ -43,15 +43,17 @@ struct Struct {
 }
 
 
-pub fn represent_node(bcx: block, node: ast::node_id)
-    -> Repr {
+pub fn represent_node(bcx: block, node: ast::node_id) -> @Repr {
     represent_type(bcx.ccx(), node_id_type(bcx, node))
 }
 
-pub fn represent_type(cx: @CrateContext, t: ty::t) -> Repr {
+pub fn represent_type(cx: @CrateContext, t: ty::t) -> @Repr {
     debug!("Representing: %s", ty_to_str(cx.tcx, t));
-    // XXX: cache this
-    match ty::get(t).sty {
+    match cx.adt_reprs.find(&t) {
+        Some(repr) => return *repr,
+        None => { }
+    }
+    let repr = @match ty::get(t).sty {
         ty::ty_tup(ref elems) => {
             Univariant(mk_struct(cx, *elems), NoDtor)
         }
@@ -97,7 +99,9 @@ pub fn represent_type(cx: @CrateContext, t: ty::t) -> Repr {
             }
         }
         _ => cx.sess.bug(~"adt::represent_type called on non-ADT type")
-    }
+    };
+    cx.adt_reprs.insert(t, repr);
+    return repr;
 }
 
 fn mk_struct(cx: @CrateContext, tys: &[ty::t]) -> Struct {
