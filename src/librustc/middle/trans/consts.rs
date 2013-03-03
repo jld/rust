@@ -226,7 +226,7 @@ pub fn const_expr(cx: @CrateContext, e: @ast::expr) -> ValueRef {
               let (bt, bv) = const_autoderef(cx, bt, bv);
               do expr::with_field_tys(cx.tcx, bt, None) |discr, field_tys| {
                   let ix = ty::field_idx_strict(cx.tcx, field, field_tys);
-                  adt::const_get_element(cx, brepr, bv, discr, ix)
+                  adt::const_get_field(cx, brepr, bv, discr, ix)
               }
           }
 
