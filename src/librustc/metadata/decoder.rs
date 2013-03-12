@@ -22,7 +22,7 @@ use metadata::tydecode::{parse_ty_data, parse_def_id,
 use middle::{ty, resolve};
 
 use core::hash::HashUtil;
-use core::int;
+use core::i64;
 use core::io::WriterUtil;
 use core::io;
 use core::option;
@@ -214,9 +214,9 @@ fn each_reexport(d: ebml::Doc, f: &fn(ebml::Doc) -> bool) -> bool {
     return true;
 }
 
-fn variant_disr_val(d: ebml::Doc) -> Option<int> {
+fn variant_disr_val(d: ebml::Doc) -> Option<ty::Disr> {
     do reader::maybe_get_doc(d, tag_disr_val).chain |val_doc| {
-        int::parse_bytes(reader::doc_data(val_doc), 10u)
+        i64::parse_bytes(reader::doc_data(val_doc), 10u)
     }
 }
 

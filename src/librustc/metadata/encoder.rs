@@ -23,6 +23,7 @@ use util::ppaux::ty_to_str;
 use std::flate;
 use core::hash::HashUtil;
 use core::hashmap::HashMap;
+use core::uint;
 use std::serialize::Encodable;
 use std;
 use syntax::abi::AbiSet;
@@ -284,9 +285,9 @@ fn encode_discriminant(ecx: @EncodeContext,
 
 fn encode_disr_val(_: @EncodeContext,
                    ebml_w: &mut writer::Encoder,
-                   disr_val: int) {
+                   disr_val: ty::Disr) {
     ebml_w.start_tag(tag_disr_val);
-    ebml_w.writer.write(str::to_bytes(int::to_str(disr_val)));
+    ebml_w.writer.write(str::to_bytes(disr_val.to_str()));
     ebml_w.end_tag();
 }
 
