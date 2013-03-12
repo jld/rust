@@ -3112,8 +3112,8 @@ pub fn check_enum_variants(ccx: @mut CrateCtxt,
                 _sp: span,
                 vs: &[ast::variant],
                 id: ast::node_id,
-                disr_vals: &mut ~[int],
-                disr_val: &mut int,
+                disr_vals: &mut ~[ty::Disr],
+                disr_val: &mut ty::Disr,
                 variants: &mut ~[ty::VariantInfo]) {
         let rty = ty::node_id_to_type(ccx.tcx, id);
         for vs.iter().advance |v| {
@@ -3130,7 +3130,7 @@ pub fn check_enum_variants(ccx: @mut CrateCtxt,
 
                 match const_eval::eval_const_expr_partial(ccx.tcx, e) {
                   Ok(const_eval::const_int(val)) => {
-                    *disr_val = val as int;
+                    *disr_val = val as ty::Disr;
                   }
                   Ok(_) => {
                     ccx.tcx.sess.span_err(e.span, "expected signed integer \
@@ -3180,7 +3180,7 @@ pub fn check_enum_variants(ccx: @mut CrateCtxt,
     }
 
     let rty = ty::node_id_to_type(ccx.tcx, id);
-    let mut disr_vals: ~[int] = ~[];
+    let mut disr_vals = ~[];
     let mut disr_val = 0;
     let mut variants = ~[];
 

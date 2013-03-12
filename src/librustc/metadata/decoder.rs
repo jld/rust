@@ -23,7 +23,7 @@ use metadata::tydecode::{parse_ty_data, parse_def_id,
 use middle::{ty, resolve};
 
 use std::hash::HashUtil;
-use std::int;
+use std::i64;
 use std::io::WriterUtil;
 use std::io;
 use std::option;
@@ -202,9 +202,9 @@ fn each_reexport(d: ebml::Doc, f: &fn(ebml::Doc) -> bool) -> bool {
     return true;
 }
 
-fn variant_disr_val(d: ebml::Doc) -> Option<int> {
+fn variant_disr_val(d: ebml::Doc) -> Option<ty::Disr> {
     do reader::maybe_get_doc(d, tag_disr_val).chain |val_doc| {
-        do reader::with_doc_data(val_doc) |data| { int::parse_bytes(data, 10u) }
+        do reader::with_doc_data(val_doc) |data| { i64::parse_bytes(data, 10u) }
     }
 }
 
