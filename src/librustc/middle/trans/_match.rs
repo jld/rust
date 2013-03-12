@@ -193,7 +193,7 @@ pub enum Lit {
 // range)
 pub enum Opt {
     lit(Lit),
-    var(/* disr val */int, @adt::Repr),
+    var(ty::Disr, @adt::Repr),
     range(@ast::expr, @ast::expr),
     vec_len_eq(uint),
     vec_len_ge(uint, /* slice */uint)
@@ -868,7 +868,7 @@ pub struct ExtractedBlock {
 
 pub fn extract_variant_args(bcx: block,
                             repr: &adt::Repr,
-                            disr_val: int,
+                            disr_val: ty::Disr,
                             val: ValueRef)
     -> ExtractedBlock {
     let _icx = bcx.insn_ctxt("match::extract_variant_args");
