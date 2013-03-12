@@ -23,7 +23,7 @@ use metadata::tydecode::{parse_ty_data, parse_def_id, parse_bounds_data};
 use middle::{ty, resolve};
 
 use core::hash::{Hash, HashUtil};
-use core::int;
+use core::i64;
 use core::io::WriterUtil;
 use core::io;
 use core::option;
@@ -214,9 +214,9 @@ fn field_mutability(d: ebml::Doc) -> ast::struct_mutability {
         })
 }
 
-fn variant_disr_val(d: ebml::Doc) -> Option<int> {
+fn variant_disr_val(d: ebml::Doc) -> Option<ty::Disr> {
     do option::chain(reader::maybe_get_doc(d, tag_disr_val)) |val_doc| {
-        int::parse_bytes(reader::doc_data(val_doc), 10u)
+        i64::parse_bytes(reader::doc_data(val_doc), 10u)
     }
 }
 

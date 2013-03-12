@@ -61,6 +61,7 @@ use middle::trans::common::*;
 use middle::trans::machine;
 use middle::trans::type_of;
 use middle::ty;
+use middle::ty::Disr;
 use syntax::ast;
 use util::ppaux::ty_to_str;
 
@@ -68,7 +69,7 @@ use util::ppaux::ty_to_str;
 /// Representations.
 pub enum Repr {
     /// C-like enums; basically an int.
-    CEnum(int, int), // discriminant range
+    CEnum(Disr, Disr), // discriminant range
     /**
      * Single-case variants, and structs/tuples/records.
      *
@@ -122,7 +123,7 @@ pub fn represent_type(cx: @CrateContext, t: ty::t) -> @Repr {
             Univariant(mk_struct(cx, ftys), dtor)
         }
         ty::ty_enum(def_id, ref substs) => {
-            struct Case { discr: int, tys: ~[ty::t] };
+            struct Case { discr: Disr, tys: ~[ty::t] };
 
             let cases = do ty::enum_variants(cx.tcx, def_id).map |vi| {
                 let arg_tys = do vi.args.map |&raw_ty| {
@@ -145,7 +146,7 @@ pub fn represent_type(cx: @CrateContext, t: ty::t) -> @Repr {
                 // The general case.  Since there's at least one
                 // non-empty body, explicit discriminants should have
                 // been rejected by a checker before this point.
-                if !cases.alli(|i,c| c.discr == (i as int)) {
+                if !cases.alli(|i,c| c.discr == (i as Disr)) {
                     cx.sess.bug(fmt!("non-C-like enum %s with specified \
                                       discriminants",
                                      ty::item_path_str(cx.tcx, def_id)))
@@ -247,17 +248,17 @@ pub fn trans_get_discr(bcx: block, r: &Repr, scrutinee: ValueRef)
     -> ValueRef {
     match *r {
         CEnum(min, max) => load_discr(bcx, scrutinee, min, max),
-        Univariant(*) => C_int(bcx.ccx(), 0),
+        Univariant(*) => C_u8(0),
         General(ref cases) => load_discr(bcx, scrutinee, 0,
-                                         (cases.len() - 1) as int)
+                                         (cases.len() - 1) as Disr)
     }
 }
 
 /// Helper for cases where the discriminant is simply loaded.
-fn load_discr(bcx: block, scrutinee: ValueRef, min: int, max: int)
+fn load_discr(bcx: block, scrutinee: ValueRef, min: Disr, max: Disr)
     -> ValueRef {
     let ptr = GEPi(bcx, scrutinee, [0, 0]);
-    if max + 1 == min {
+    if max + 1 == min { // FIXME: this isn't right anymore
         // i.e., if the range is everything.  The lo==hi case would be
         // rejected by the LLVM verifier (it would mean either an
         // empty set, which is impossible, or the entire range of the
@@ -278,16 +279,16 @@ fn load_discr(bcx: block, scrutinee: ValueRef, min: int, max: int)
  *
  * This should ideally be less tightly tied to `_match`.
  */
-pub fn trans_case(bcx: block, r: &Repr, discr: int) -> _match::opt_result {
+pub fn trans_case(bcx: block, r: &Repr, discr: Disr) -> _match::opt_result {
     match *r {
         CEnum(*) => {
-            _match::single_result(rslt(bcx, C_int(bcx.ccx(), discr)))
+            _match::single_result(rslt(bcx, C_int(bcx.ccx(), discr /*bad*/as int)))
         }
         Univariant(*)=> {
             bcx.ccx().sess.bug(~"no cases for univariants or structs")
         }
         General(*) => {
-            _match::single_result(rslt(bcx, C_int(bcx.ccx(), discr)))
+            _match::single_result(rslt(bcx, C_int(bcx.ccx(), discr /*bad*/as int)))
         }
     }
 }
@@ -297,11 +298,11 @@ pub fn trans_case(bcx: block, r: &Repr, discr: int) -> _match::opt_result {
  * representation.  The fields, if any, should then be initialized via
  * `trans_field_ptr`.
  */
-pub fn trans_start_init(bcx: block, r: &Repr, val: ValueRef, discr: int) {
+pub fn trans_start_init(bcx: block, r: &Repr, val: ValueRef, discr: Disr) {
     match *r {
         CEnum(min, max) => {
             fail_unless!(min <= discr && discr <= max);
-            Store(bcx, C_int(bcx.ccx(), discr), GEPi(bcx, val, [0, 0]))
+            Store(bcx, C_int(bcx.ccx(), discr /*bad*/as int), GEPi(bcx, val, [0, 0]))
         }
         Univariant(ref st, true) => {
             fail_unless!(discr == 0);
@@ -312,7 +313,7 @@ pub fn trans_start_init(bcx: block, r: &Repr, val: ValueRef, discr: int) {
             fail_unless!(discr == 0);
         }
         General(*) => {
-            Store(bcx, C_int(bcx.ccx(), discr), GEPi(bcx, val, [0, 0]))
+            Store(bcx, C_int(bcx.ccx(), discr /*bad*/as int), GEPi(bcx, val, [0, 0]))
         }
     }
 }
@@ -321,7 +322,7 @@ pub fn trans_start_init(bcx: block, r: &Repr, val: ValueRef, discr: int) {
  * The number of fields in a given case; for use when obtaining this
  * information from the type or definition is less convenient.
  */
-pub fn num_args(r: &Repr, discr: int) -> uint {
+pub fn num_args(r: &Repr, discr: Disr) -> uint {
     match *r {
         CEnum(*) => 0,
         Univariant(ref st, dtor) => {
@@ -333,7 +334,7 @@ pub fn num_args(r: &Repr, discr: int) -> uint {
 }
 
 /// Access a field, at a point when the value's case is known.
-pub fn trans_field_ptr(bcx: block, r: &Repr, val: ValueRef, discr: int,
+pub fn trans_field_ptr(bcx: block, r: &Repr, val: ValueRef, discr: Disr,
                        ix: uint) -> ValueRef {
     // Note: if this ever needs to generate conditionals (e.g., if we
     // decide to do some kind of cdr-coding-like non-unique repr
@@ -397,13 +398,13 @@ pub fn trans_drop_flag_ptr(bcx: block, r: &Repr, val: ValueRef) -> ValueRef {
  * this could be changed in the future to avoid allocating unnecessary
  * space after values of shorter-than-maximum cases.
  */
-pub fn trans_const(ccx: @CrateContext, r: &Repr, discr: int,
+pub fn trans_const(ccx: @CrateContext, r: &Repr, discr: Disr,
                    vals: &[ValueRef]) -> ValueRef {
     match *r {
         CEnum(min, max) => {
             fail_unless!(vals.len() == 0);
             fail_unless!(min <= discr && discr <= max);
-            C_int(ccx, discr)
+            C_int(ccx, discr /*bad*/as int)
         }
         Univariant(ref st, _dro) => {
             fail_unless!(discr == 0);
@@ -413,7 +414,7 @@ pub fn trans_const(ccx: @CrateContext, r: &Repr, discr: int,
             let case = &cases[discr as uint];
             let max_sz = cases.map(|s| s.size).max();
             let contents = build_const_struct(ccx, case,
-                                              ~[C_int(ccx, discr)] + vals);
+                                              ~[C_int(ccx, discr/*bad*/ as int)] + vals);
             C_struct(contents + [padding(max_sz - case.size)])
         }
     }
@@ -466,11 +467,11 @@ fn roundup(x: u64, a: u64) -> u64 { ((x + (a - 1)) / a) * a }
 
 /// Get the discriminant of a constant value.  (Not currently used.)
 pub fn const_get_discrim(ccx: @CrateContext, r: &Repr, val: ValueRef)
-    -> int {
+    -> Disr {
     match *r {
-        CEnum(*) => const_to_int(val) as int,
+        CEnum(*) => const_to_int(val) as Disr,
         Univariant(*) => 0,
-        General(*) => const_to_int(const_get_elt(ccx, val, [0])) as int,
+        General(*) => const_to_int(const_get_elt(ccx, val, [0])) as Disr,
     }
 }
 
@@ -482,7 +483,7 @@ pub fn const_get_discrim(ccx: @CrateContext, r: &Repr, val: ValueRef)
  * raw LLVM-level structs and arrays.)
  */
 pub fn const_get_field(ccx: @CrateContext, r: &Repr, val: ValueRef,
-                       _discr: int, ix: uint) -> ValueRef {
+                       _discr: Disr, ix: uint) -> ValueRef {
     match *r {
         CEnum(*) => ccx.sess.bug(~"element access in C-like enum const"),
         Univariant(*) => const_struct_field(ccx, val, ix),

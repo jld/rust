@@ -24,7 +24,6 @@ use util::ppaux::ty_to_str;
 
 use core::flate;
 use core::hash::{Hash, HashUtil};
-use core::int;
 use core::io::{Writer, WriterUtil};
 use core::io;
 use core::str;
@@ -249,9 +248,9 @@ fn encode_discriminant(ecx: @EncodeContext, ebml_w: writer::Encoder,
 }
 
 fn encode_disr_val(_ecx: @EncodeContext, ebml_w: writer::Encoder,
-                   disr_val: int) {
+                   disr_val: ty::Disr) {
     ebml_w.start_tag(tag_disr_val);
-    ebml_w.writer.write(str::to_bytes(int::to_str(disr_val)));
+    ebml_w.writer.write(str::to_bytes(disr_val.to_str()));
     ebml_w.end_tag();
 }
 
