@@ -3663,9 +3663,11 @@ pub struct VariantInfo_ {
     ctor_ty: t,
     name: ast::ident,
     id: ast::def_id,
-    disr_val: int,
+    disr_val: Disr,
     vis: visibility
 }
+
+pub type Disr = i64;
 
 pub type VariantInfo = @VariantInfo_;
 
@@ -3829,7 +3831,7 @@ pub fn enum_variants(cx: ctxt, id: ast::def_id) -> @~[VariantInfo] {
                           Some (ex) => {
                             disr_val = match const_eval::eval_const_expr(cx,
                                                                          ex) {
-                              const_eval::const_int(val) => val as int,
+                              const_eval::const_int(val) => val as Disr,
                               _ => cx.sess.bug("tag_variants: bad disr expr")
                             }
                           }

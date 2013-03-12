@@ -313,7 +313,7 @@ impl Reflector {
                 for variants.iter().enumerate().advance |(i, v)| {
                     let name = ccx.sess.str_of(v.name);
                     let variant_args = ~[this.c_uint(i),
-                                         this.c_int(v.disr_val),
+                                         this.c_int(v.disr_val /*bad*/as int),
                                          this.c_uint(v.args.len()),
                                          this.c_slice(name)];
                     do this.bracketed("enum_variant", variant_args) |this| {
