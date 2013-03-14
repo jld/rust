@@ -52,6 +52,7 @@
 use core::container::Map;
 use core::libc::c_ulonglong;
 use core::option::{Option, Some, None};
+use core::{u8,u16,u32,u64,i8,i16,i32};
 use core::vec;
 
 use lib::llvm::{ValueRef, TypeRef, True, False};
@@ -69,7 +70,7 @@ use util::ppaux::ty_to_str;
 /// Representations.
 pub enum Repr {
     /// C-like enums; basically an int.
-    CEnum(Disr, Disr), // discriminant range
+    CEnum(IntType, Disr, Disr), // discriminant range
     /**
      * Single-case variants, and structs/tuples/records.
      *
@@ -82,8 +83,69 @@ pub enum Repr {
      * General-case enums: for each case there is a struct, and they
      * all start with a field for the discriminant.
      */
-    General(~[Struct])
+    General(IntType, ~[Struct])
 }
+
+/// How to represent a discriminant
+struct IntType {
+    signed: bool,
+    bits: IntSize
+}
+enum IntSize {
+    I8, I16, I32, I64
+}
+
+impl IntType {
+    fn lltype(self) -> TypeRef {
+        match self.bits {
+            I8 => T_i8(),
+            I16 => T_i16(),
+            I32 => T_i32(),
+            I64 => T_i64()
+        }
+    }
+
+    fn llconst(self, i: i64) -> ValueRef {
+        C_integral(self.lltype(), i as u64, if self.signed { True } else { False })
+    }
+
+    fn const_to_int(self, c: ValueRef) -> i64 {
+        if self.signed {
+            const_to_int(c) as i64
+        } else {
+            const_to_uint(c) as i64
+        }
+    }
+
+    fn ty(self, tcx: ty::ctxt) -> ty::t {
+        if self.signed {
+            match self.bits {
+                I8 => ty::mk_i8(tcx),
+                I16 => ty::mk_i16(tcx),
+                I32 => ty::mk_i32(tcx),
+                I64 => ty::mk_i64(tcx)
+            }
+        } else {
+            match self.bits {
+                I8 => ty::mk_u8(tcx),
+                I16 => ty::mk_u16(tcx),
+                I32 => ty::mk_u32(tcx),
+                I64 => ty::mk_u64(tcx)
+            }
+        }
+    }
+
+    fn mask(self) -> u64 {
+        match self.bits {
+            I8 => u8::max_value as u64,
+            I16 => u16::max_value as u64,
+            I32 => u32::max_value as u64,
+            I64 => u64::max_value
+        }
+    }
+}
+
+
 
 /// For structs, and struct-like parts of anything fancier.
 struct Struct {
@@ -137,7 +199,7 @@ pub fn represent_type(cx: @CrateContext, t: ty::t) -> @Repr {
             } else if cases.all(|c| c.tys.len() == 0) {
                 // All bodies empty -> intlike
                 let discrs = cases.map(|c| c.discr);
-                CEnum(discrs.min(), discrs.max())
+                mk_cenum(discrs.min(), discrs.max())
             } else if cases.len() == 1 {
                 // Equivalent to a struct/tuple/newtype.
                 fail_unless!(cases[0].discr == 0);
@@ -151,14 +213,19 @@ pub fn represent_type(cx: @CrateContext, t: ty::t) -> @Repr {
                                       discriminants",
                                      ty::item_path_str(cx.tcx, def_id)))
                 }
-                let discr = ~[ty::mk_int(cx.tcx)];
-                General(cases.map(|c| mk_struct(cx, discr + c.tys)))
+                let discr_it = choose_uint(cases.len() as u64);
+                let discr = ~[discr_it.ty(cx.tcx)];
+                General(discr_it, cases.map(|c| mk_struct(cx, discr + c.tys)))
             }
         }
         _ => cx.sess.bug(~"adt::represent_type called on non-ADT type")
     };
     cx.adt_reprs.insert(t, repr);
     return repr;
+}
+
+fn mk_cenum(min: i64, max: i64) -> Repr {
+    CEnum(choose_int(min, max), min, max)
 }
 
 fn mk_struct(cx: @CrateContext, tys: &[ty::t]) -> Struct {
@@ -170,6 +237,31 @@ fn mk_struct(cx: @CrateContext, tys: &[ty::t]) -> Struct {
         fields: vec::from_slice(tys)
     }
 }
+
+fn choose_uint(max: u64) -> IntType {
+    IntType {
+        signed: false,
+        bits: if max <= u8::max_value as u64 { I8 }
+        else if max <= u16::max_value as u64 { I16 }
+        else if max <= u32::max_value as u64 { I32 }
+        else { I64 }
+    }
+}
+
+fn choose_int(min: i64, max: i64) -> IntType {
+    if min >= 0 {
+        choose_uint(max as u64)
+    } else {
+        IntType {
+            signed: true,
+            bits: if min >= i8::min_value as i64 && max <= i8::max_value as i64 { I8 }
+            else if min >= i16::min_value as i64 && max <= i16::max_value as i64 { I16 }
+            else if min >= i32::min_value as i64 && max <= i32::max_value as i64 { I32 }
+            else { I64 }
+        }
+    }
+}
+
 
 /**
  * Returns the fields of a struct for the given representation.
@@ -186,9 +278,9 @@ pub fn sizing_fields_of(cx: @CrateContext, r: &Repr) -> ~[TypeRef] {
 fn generic_fields_of(cx: @CrateContext, r: &Repr, sizing: bool)
     -> ~[TypeRef] {
     match *r {
-        CEnum(*) => ~[T_enum_discrim(cx)],
+        CEnum(it, _, _) => ~[it.lltype()],
         Univariant(ref st, _dtor) => struct_llfields(cx, st, sizing),
-        General(ref sts) => {
+        General(_it, ref sts) => {
             // To get "the" type of a general enum, we pick the case
             // with the largest alignment (so it will always align
             // correctly in containing structures) and pad it out.
@@ -247,18 +339,19 @@ pub fn trans_switch(bcx: block, r: &Repr, scrutinee: ValueRef)
 pub fn trans_get_discr(bcx: block, r: &Repr, scrutinee: ValueRef)
     -> ValueRef {
     match *r {
-        CEnum(min, max) => load_discr(bcx, scrutinee, min, max),
+        CEnum(it, min, max) => load_discr(bcx, scrutinee, it, min, max),
         Univariant(*) => C_u8(0),
-        General(ref cases) => load_discr(bcx, scrutinee, 0,
-                                         (cases.len() - 1) as Disr)
+        General(it, ref cases) => load_discr(bcx, scrutinee, it, 0,
+                                             (cases.len() - 1) as Disr)
     }
 }
 
 /// Helper for cases where the discriminant is simply loaded.
-fn load_discr(bcx: block, scrutinee: ValueRef, min: Disr, max: Disr)
+fn load_discr(bcx: block, scrutinee: ValueRef, it: IntType, min: Disr, max: Disr)
     -> ValueRef {
     let ptr = GEPi(bcx, scrutinee, [0, 0]);
-    if max + 1 == min { // FIXME: this isn't right anymore
+    let mask = it.mask() as Disr;
+    if ((max + 1) & mask) == (min & mask) {
         // i.e., if the range is everything.  The lo==hi case would be
         // rejected by the LLVM verifier (it would mean either an
         // empty set, which is impossible, or the entire range of the
@@ -281,14 +374,14 @@ fn load_discr(bcx: block, scrutinee: ValueRef, min: Disr, max: Disr)
  */
 pub fn trans_case(bcx: block, r: &Repr, discr: Disr) -> _match::opt_result {
     match *r {
-        CEnum(*) => {
-            _match::single_result(rslt(bcx, C_int(bcx.ccx(), discr)))
+        CEnum(it, _, _) => {
+            _match::single_result(rslt(bcx, it.llconst(discr)))
         }
         Univariant(*)=> {
             bcx.ccx().sess.bug(~"no cases for univariants or structs")
         }
-        General(*) => {
-            _match::single_result(rslt(bcx, C_int(bcx.ccx(), discr)))
+        General(it, _) => {
+            _match::single_result(rslt(bcx, it.llconst(discr)))
         }
     }
 }
@@ -300,9 +393,9 @@ pub fn trans_case(bcx: block, r: &Repr, discr: Disr) -> _match::opt_result {
  */
 pub fn trans_start_init(bcx: block, r: &Repr, val: ValueRef, discr: Disr) {
     match *r {
-        CEnum(min, max) => {
+        CEnum(it, min, max) => {
             fail_unless!(min <= discr && discr <= max);
-            Store(bcx, C_int(bcx.ccx(), discr), GEPi(bcx, val, [0, 0]))
+            Store(bcx, it.llconst(discr), GEPi(bcx, val, [0, 0]))
         }
         Univariant(ref st, true) => {
             fail_unless!(discr == 0);
@@ -312,8 +405,8 @@ pub fn trans_start_init(bcx: block, r: &Repr, val: ValueRef, discr: Disr) {
         Univariant(*) => {
             fail_unless!(discr == 0);
         }
-        General(*) => {
-            Store(bcx, C_int(bcx.ccx(), discr), GEPi(bcx, val, [0, 0]))
+        General(it, _) => {
+            Store(bcx, it.llconst(discr), GEPi(bcx, val, [0, 0]))
         }
     }
 }
@@ -329,7 +422,7 @@ pub fn num_args(r: &Repr, discr: Disr) -> uint {
             fail_unless!(discr == 0);
             st.fields.len() - (if dtor { 1 } else { 0 })
         }
-        General(ref cases) => cases[discr as uint].fields.len() - 1
+        General(_it, ref cases) => cases[discr as uint].fields.len() - 1
     }
 }
 
@@ -347,7 +440,7 @@ pub fn trans_field_ptr(bcx: block, r: &Repr, val: ValueRef, discr: Disr,
             fail_unless!(discr == 0);
             struct_field_ptr(bcx, st, val, ix, false)
         }
-        General(ref cases) => {
+        General(_it, ref cases) => {
             struct_field_ptr(bcx, &cases[discr as uint], val, ix + 1, true)
         }
     }
@@ -401,20 +494,20 @@ pub fn trans_drop_flag_ptr(bcx: block, r: &Repr, val: ValueRef) -> ValueRef {
 pub fn trans_const(ccx: @CrateContext, r: &Repr, discr: Disr,
                    vals: &[ValueRef]) -> ValueRef {
     match *r {
-        CEnum(min, max) => {
+        CEnum(it, min, max) => {
             fail_unless!(vals.len() == 0);
             fail_unless!(min <= discr && discr <= max);
-            C_int(ccx, discr)
+            it.llconst(discr)
         }
         Univariant(ref st, _dro) => {
             fail_unless!(discr == 0);
             C_struct(build_const_struct(ccx, st, vals))
         }
-        General(ref cases) => {
+        General(it, ref cases) => {
             let case = &cases[discr as uint];
             let max_sz = cases.map(|s| s.size).max();
             let contents = build_const_struct(ccx, case,
-                                              ~[C_int(ccx, discr)] + vals);
+                                              ~[it.llconst(discr)] + vals);
             C_struct(contents + [padding(max_sz - case.size)])
         }
     }
@@ -469,9 +562,9 @@ fn roundup(x: u64, a: u64) -> u64 { ((x + (a - 1)) / a) * a }
 pub fn const_get_discrim(ccx: @CrateContext, r: &Repr, val: ValueRef)
     -> Disr {
     match *r {
-        CEnum(*) => const_to_int(val) as Disr,
+        CEnum(it, _, _) => it.const_to_int(val),
         Univariant(*) => 0,
-        General(*) => const_to_int(const_get_elt(ccx, val, [0])) as Disr,
+        General(it, _) => it.const_to_int(const_get_elt(ccx, val, [0])),
     }
 }
 
