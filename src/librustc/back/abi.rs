@@ -68,7 +68,7 @@ pub const slice_elt_len: uint = 1u;
 
 pub const worst_case_glue_call_args: uint = 7u;
 
-pub const abi_version: uint = 1u;
+pub const abi_version: u64 = 1;
 
 pub fn memcpy_glue_name() -> ~str { return ~"rust_memcpy_glue"; }
 

@@ -1026,7 +1026,7 @@ pub fn trans_trace(bcx: block, sp_opt: Option<span>, trace_str: @~str) {
       Some(sp) => {
         let sess = bcx.sess();
         let loc = sess.parse_sess.cm.lookup_char_pos(sp.lo);
-        (C_cstr(bcx.ccx(), @/*bad*/copy loc.file.name), loc.line as int)
+        (C_cstr(bcx.ccx(), @/*bad*/copy loc.file.name), loc.line as i64)
       }
       None => {
         (C_cstr(bcx.ccx(), @~"<runtime>"), 0)
@@ -2554,7 +2554,9 @@ pub fn trans_constant(ccx: @CrateContext, it: @ast::item) {
                 }
             });
             unsafe {
-                llvm::LLVMSetInitializer(discrim_gvar, C_int(ccx, disr_val /*bad*/as int));
+                // NOTE: this should probably be C_i64
+                // NOTE: are these actually used?
+                llvm::LLVMSetInitializer(discrim_gvar, C_int(ccx, disr_val));
                 llvm::LLVMSetGlobalConstant(discrim_gvar, True);
             }
             ccx.discrims.insert(

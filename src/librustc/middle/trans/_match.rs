@@ -271,10 +271,10 @@ pub fn trans_opt(bcx: block, o: &Opt) -> opt_result {
                                 rslt(bcx, consts::const_expr(ccx, l2)));
         }
         vec_len_eq(n) => {
-            return single_result(rslt(bcx, C_int(ccx, n as int)));
+            return single_result(rslt(bcx, C_int(ccx, n as i64)));
         }
         vec_len_ge(n, _) => {
-            return lower_bound(rslt(bcx, C_int(ccx, n as int)));
+            return lower_bound(rslt(bcx, C_int(ccx, n as i64)));
         }
     }
 }
@@ -862,7 +862,7 @@ pub fn extract_vec_elems(bcx: block,
             Some(n) if i > n => {
                 InBoundsGEP(bcx, base, ~[
                     Sub(bcx, count,
-                        C_int(bcx.ccx(), (elem_count - i) as int))])
+                        C_int(bcx.ccx(), (elem_count - i) as i64))])
             }
             _ => unsafe { llvm::LLVMGetUndef(vt.llunit_ty) }
         }
@@ -870,11 +870,11 @@ pub fn extract_vec_elems(bcx: block,
     if slice.is_some() {
         let n = slice.get();
         let slice_offset = Mul(bcx, vt.llunit_size,
-            C_int(bcx.ccx(), n as int)
+            C_int(bcx.ccx(), n as i64)
         );
         let slice_begin = tvec::pointer_add(bcx, base, slice_offset);
         let slice_len_offset = Mul(bcx, vt.llunit_size,
-            C_int(bcx.ccx(), (elem_count - 1u) as int)
+            C_int(bcx.ccx(), (elem_count - 1u) as i64)
         );
         let slice_len = Sub(bcx, len, slice_len_offset);
         let slice_ty = ty::mk_evec(bcx.tcx(),

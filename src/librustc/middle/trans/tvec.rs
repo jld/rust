@@ -109,7 +109,7 @@ pub fn alloc_vec(bcx: block,
     let llunitty = type_of::type_of(ccx, unit_ty);
     let unit_sz = nonzero_llsize_of(ccx, llunitty);
 
-    let fill = Mul(bcx, C_uint(ccx, elts), unit_sz);
+    let fill = Mul(bcx, C_uint(ccx, elts as u64), unit_sz);
     let alloc = if elts < 4u { Mul(bcx, C_int(ccx, 4), unit_sz) }
                 else { fill };
     let Result {bcx: bcx, val: vptr} =
@@ -220,7 +220,7 @@ pub fn trans_slice_vstore(bcx: block,
     debug!("vt=%s, count=%?", vt.to_str(ccx), count);
 
     // Make a fixed-length backing array and allocate it on the stack.
-    let llcount = C_uint(ccx, count);
+    let llcount = C_uint(ccx, count as u64);
     let llfixed = base::arrayalloca(bcx, vt.llunit_ty, llcount);
 
     // Arrange for the backing array to be cleaned up.
@@ -269,7 +269,7 @@ pub fn trans_lit_str(bcx: block,
         SaveIn(lldest) => {
             unsafe {
                 let bytes = str_lit.len() + 1; // count null-terminator too
-                let llbytes = C_uint(bcx.ccx(), bytes);
+                let llbytes = C_uint(bcx.ccx(), bytes as u64);
                 let llcstr = C_cstr(bcx.ccx(), str_lit);
                 let llcstr = llvm::LLVMConstPointerCast(llcstr,
                                                         T_ptr(T_i8()));
@@ -308,7 +308,7 @@ pub fn trans_uniq_or_managed_vstore(bcx: block,
                 }) => {
                     let llptrval = C_cstr(bcx.ccx(), s);
                     let llptrval = PointerCast(bcx, llptrval, T_ptr(T_i8()));
-                    let llsizeval = C_uint(bcx.ccx(), s.len());
+                    let llsizeval = C_uint(bcx.ccx(), s.len() as u64);
                     let typ = ty::mk_estr(bcx.tcx(), ty::vstore_uniq);
                     let lldestval = scratch_datum(bcx, typ, false);
                     let bcx = callee::trans_lang_call(
@@ -369,7 +369,7 @@ pub fn write_content(bcx: block,
                 }
                 SaveIn(lldest) => {
                     let bytes = s.len() + 1; // copy null-terminator too
-                    let llbytes = C_uint(bcx.ccx(), bytes);
+                    let llbytes = C_uint(bcx.ccx(), bytes as u64);
                     let llcstr = C_cstr(bcx.ccx(), s);
                     base::call_memcpy(bcx, lldest, llcstr, llbytes);
                     return bcx;
@@ -503,7 +503,7 @@ pub fn get_base_and_len(bcx: block,
         ty::vstore_fixed(n) => {
             let base = GEPi(bcx, llval, [0u, 0u]);
             let n = if ty::type_is_str(vec_ty) { n + 1u } else { n };
-            let len = Mul(bcx, C_uint(ccx, n), vt.llunit_size);
+            let len = Mul(bcx, C_uint(ccx, n as u64), vt.llunit_size);
             (base, len)
         }
         ty::vstore_slice(_) => {

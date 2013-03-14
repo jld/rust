@@ -435,7 +435,7 @@ pub fn trans_intrinsic(ccx: @CrateContext,
         ~"size_of" => {
             let tp_ty = substs.tys[0];
             let lltp_ty = type_of::type_of(ccx, tp_ty);
-            Store(bcx, C_uint(ccx, machine::llsize_of_real(ccx, lltp_ty)),
+            Store(bcx, C_uint(ccx, machine::llsize_of_real(ccx, lltp_ty) /*bad*/as u64),
                   fcx.llretptr);
         }
         ~"move_val" => {
@@ -466,13 +466,13 @@ pub fn trans_intrinsic(ccx: @CrateContext,
         ~"min_align_of" => {
             let tp_ty = substs.tys[0];
             let lltp_ty = type_of::type_of(ccx, tp_ty);
-            Store(bcx, C_uint(ccx, machine::llalign_of_min(ccx, lltp_ty)),
+            Store(bcx, C_uint(ccx, machine::llalign_of_min(ccx, lltp_ty) /*bad*/as u64),
                   fcx.llretptr);
         }
         ~"pref_align_of"=> {
             let tp_ty = substs.tys[0];
             let lltp_ty = type_of::type_of(ccx, tp_ty);
-            Store(bcx, C_uint(ccx, machine::llalign_of_pref(ccx, lltp_ty)),
+            Store(bcx, C_uint(ccx, machine::llalign_of_pref(ccx, lltp_ty) /*bad*/as u64),
                   fcx.llretptr);
         }
         ~"get_tydesc" => {

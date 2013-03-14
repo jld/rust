@@ -369,7 +369,7 @@ fn trans_fail_value(bcx: block,
         let sess = bcx.sess();
         let loc = sess.parse_sess.cm.lookup_char_pos(sp.lo);
         (C_cstr(bcx.ccx(), @/*bad*/ copy loc.file.name),
-         loc.line as int)
+         loc.line as i64)
       }
       None => {
         (C_cstr(bcx.ccx(), @~"<runtime>"), 0)
@@ -390,7 +390,7 @@ pub fn trans_fail_bounds_check(bcx: block, sp: span,
     let ccx = bcx.ccx();
 
     let loc = bcx.sess().parse_sess.cm.lookup_char_pos(sp.lo);
-    let line = C_int(ccx, loc.line as int);
+    let line = C_int(ccx, loc.line as i64);
     let filename_cstr = C_cstr(bcx.ccx(), @/*bad*/copy loc.file.name);
     let filename = PointerCast(bcx, filename_cstr, T_ptr(T_i8()));
 
