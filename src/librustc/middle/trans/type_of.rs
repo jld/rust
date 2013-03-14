@@ -104,8 +104,7 @@ pub fn type_of_non_gc_box(cx: @CrateContext, t: ty::t) -> TypeRef {
 //
 // (2) It won't make any recursive calls to determine the structure of the
 //     type behind pointers. This can help prevent infinite loops for
-//     recursive types. For example, `static_size_of_enum()` relies on this
-//     behavior.
+//     recursive types. For example, enum types rely on this behavior.
 
 pub fn sizing_type_of(cx: @CrateContext, t: ty::t) -> TypeRef {
     match cx.llsizingtypes.find(&t) {
