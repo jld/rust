@@ -72,7 +72,7 @@ pub fn llsize_of(cx: @CrateContext, t: TypeRef) -> ValueRef {
     // there's no need for that contrivance.  The instruction
     // selection DAG generator would flatten that GEP(1) node into a
     // constant of the type's alloc size, so let's save it some work.
-    return C_uint(cx, llsize_of_alloc(cx, t));
+    return C_uint(cx, llsize_of_alloc(cx, t) /*bad*/as u64);
 }
 
 // Returns the "default" size of t (see above), or 1 if the size would

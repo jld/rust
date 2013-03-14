@@ -351,13 +351,13 @@ fn load_discr(bcx: block, scrutinee: ValueRef, min: Disr, max: Disr)
 pub fn trans_case(bcx: block, r: &Repr, discr: Disr) -> _match::opt_result {
     match *r {
         CEnum(*) => {
-            _match::single_result(rslt(bcx, C_int(bcx.ccx(), discr /*bad*/as int)))
+            _match::single_result(rslt(bcx, C_int(bcx.ccx(), discr)))
         }
         Univariant(*) => {
             bcx.ccx().sess.bug(~"no cases for univariants or structs")
         }
         General(*) => {
-            _match::single_result(rslt(bcx, C_int(bcx.ccx(), discr /*bad*/as int)))
+            _match::single_result(rslt(bcx, C_int(bcx.ccx(), discr)))
         }
         NullablePointer{ _ } => {
             assert!(discr == 0 || discr == 1);
@@ -375,7 +375,7 @@ pub fn trans_start_init(bcx: block, r: &Repr, val: ValueRef, discr: Disr) {
     match *r {
         CEnum(min, max) => {
             assert!(min <= discr && discr <= max);
-            Store(bcx, C_int(bcx.ccx(), discr /*bad*/as int), GEPi(bcx, val, [0, 0]))
+            Store(bcx, C_int(bcx.ccx(), discr), GEPi(bcx, val, [0, 0]))
         }
         Univariant(ref st, true) => {
             assert!(discr == 0);
@@ -386,7 +386,7 @@ pub fn trans_start_init(bcx: block, r: &Repr, val: ValueRef, discr: Disr) {
             assert!(discr == 0);
         }
         General(*) => {
-            Store(bcx, C_int(bcx.ccx(), discr /*bad*/as int), GEPi(bcx, val, [0, 0]))
+            Store(bcx, C_int(bcx.ccx(), discr), GEPi(bcx, val, [0, 0]))
         }
         NullablePointer{ nonnull: ref nonnull, nndiscr, ptrfield, _ } => {
             if discr != nndiscr {
@@ -501,7 +501,7 @@ pub fn trans_const(ccx: @CrateContext, r: &Repr, discr: Disr,
         CEnum(min, max) => {
             assert!(vals.len() == 0);
             assert!(min <= discr && discr <= max);
-            C_int(ccx, discr /*bad*/as int)
+            C_int(ccx, discr)
         }
         Univariant(ref st, _dro) => {
             assert!(discr == 0);
@@ -511,7 +511,7 @@ pub fn trans_const(ccx: @CrateContext, r: &Repr, discr: Disr,
             let case = &cases[discr as uint];
             let max_sz = cases.map(|s| s.size).max();
             let contents = build_const_struct(ccx, case,
-                                              ~[C_int(ccx, discr/*bad*/ as int)] + vals);
+                                              ~[C_int(ccx, discr)] + vals);
             C_struct(contents + [padding(max_sz - case.size)])
         }
         NullablePointer{ nonnull: ref nonnull, nndiscr, ptrfield, _ } => {

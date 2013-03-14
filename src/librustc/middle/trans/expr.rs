@@ -895,7 +895,7 @@ fn trans_lvalue_unadjusted(bcx: block, expr: @ast::expr) -> DatumBlock {
 
         if ty::type_is_str(base_ty) {
             // acccount for null terminator in the case of string
-            len = Sub(bcx, len, C_uint(bcx.ccx(), 1u));
+            len = Sub(bcx, len, C_uint(bcx.ccx(), 1));
         }
 
         debug!("trans_index: base %s", val_str(bcx.ccx().tn, base));
