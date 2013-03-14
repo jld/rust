@@ -83,7 +83,7 @@ pub fn const_vec(cx: @CrateContext, e: @ast::expr, es: &[@ast::expr])
         let unit_ty = ty::sequence_element_type(cx.tcx, vec_ty);
         let llunitty = type_of::type_of(cx, unit_ty);
         let unit_sz = machine::llsize_of(cx, llunitty);
-        let sz = llvm::LLVMConstMul(C_uint(cx, es.len()), unit_sz);
+        let sz = llvm::LLVMConstMul(C_uint(cx, es.len() as u64), unit_sz);
         let vs = es.map(|e| const_expr(cx, *e));
         // If the vector contains enums, an LLVM array won't work.
         let v = if vs.any(|vi| val_ty(*vi) != llunitty) {
@@ -350,7 +350,7 @@ fn const_expr_unadjusted(cx: @CrateContext, e: @ast::expr) -> ValueRef {
                   ty::ty_evec(_, vstore) | ty::ty_estr(vstore) =>
                       match vstore {
                       ty::vstore_fixed(u) =>
-                          (bv, C_uint(cx, u)),
+                          (bv, C_uint(cx, u as u64)),
 
                       ty::vstore_slice(_) => {
                           let unit_ty = ty::sequence_element_type(cx.tcx, bt);
@@ -410,7 +410,7 @@ fn const_expr_unadjusted(cx: @CrateContext, e: @ast::expr) -> ValueRef {
               (expr::cast_enum, expr::cast_integral) |
               (expr::cast_enum, expr::cast_float)  => {
                 let repr = adt::represent_type(cx, basety);
-                let iv = C_int(cx, adt::const_get_discrim(cx, repr, v) /*bad*/as int);
+                let iv = C_int(cx, adt::const_get_discrim(cx, repr, v));
                 let ety_cast = expr::cast_type_kind(ety);
                 match ety_cast {
                     expr::cast_integral => {

@@ -1149,12 +1149,12 @@ pub fn C_i64(i: i64) -> ValueRef {
     return C_integral(T_i64(), i as u64, True);
 }
 
-pub fn C_int(cx: @CrateContext, i: int) -> ValueRef {
+pub fn C_int(cx: @CrateContext, i: i64) -> ValueRef {
     return C_integral(cx.int_type, i as u64, True);
 }
 
-pub fn C_uint(cx: @CrateContext, i: uint) -> ValueRef {
-    return C_integral(cx.int_type, i as u64, False);
+pub fn C_uint(cx: @CrateContext, i: u64) -> ValueRef {
+    return C_integral(cx.int_type, i, False);
 }
 
 pub fn C_u8(i: uint) -> ValueRef {
@@ -1191,9 +1191,9 @@ pub fn C_cstr(cx: @CrateContext, s: @~str) -> ValueRef {
 // you will be kicked off fast isel. See issue #4352 for an example of this.
 pub fn C_estr_slice(cx: @CrateContext, s: @~str) -> ValueRef {
     unsafe {
-        let len = s.len();
+        let len = s.len() as u64;
         let cs = llvm::LLVMConstPointerCast(C_cstr(cx, s), T_ptr(T_i8()));
-        C_struct(~[cs, C_uint(cx, len + 1u /* +1 for null */)])
+        C_struct(~[cs, C_uint(cx, len + 1 /* +1 for null */)])
     }
 }
 
@@ -1570,7 +1570,7 @@ pub fn filename_and_line_num_from_span(bcx: block,
     let loc = bcx.sess().parse_sess.cm.lookup_char_pos(span.lo);
     let filename_cstr = C_cstr(bcx.ccx(), @/*bad*/copy loc.file.name);
     let filename = build::PointerCast(bcx, filename_cstr, T_ptr(T_i8()));
-    let line = C_int(bcx.ccx(), loc.line as int);
+    let line = C_int(bcx.ccx(), loc.line as i64);
     (filename, line)
 }
 
