@@ -103,19 +103,41 @@ macro_rules! move_it (
 )
 
 #[doc(hidden)]
+#[deriving_eq]
 enum State {
     Empty,
     Full,
     Blocked,
     Terminated
 }
+#[deriving_eq]
+struct State_(int);
 
-impl Eq for State {
-    pure fn eq(&self, other: &State) -> bool {
-        ((*self) as uint) == ((*other) as uint)
+impl State {
+    pure fn hide(self) -> State_ {
+        State_(self as int)
     }
-    pure fn ne(&self, other: &State) -> bool { !(*self).eq(other) }
 }
+impl State_ {
+    pure fn show(self) -> State {
+        match *self {
+            0 => Empty,
+            1 => Full,
+            2 => Blocked,
+            3 => Terminated,
+            x => fail!(fmt!("bad pipe state %d", x))
+        }
+    }
+}
+
+#[test]
+fn test_state_hideshow() {
+    fail_unless!(Empty.hide().show() == Empty);
+    fail_unless!(Full.hide().show() == Full);
+    fail_unless!(Blocked.hide().show() == Blocked);
+    fail_unless!(Terminated.hide().show() == Terminated);
+}
+
 
 pub struct BufferHeader {
     // Tracks whether this buffer needs to be freed. We can probably
@@ -140,7 +162,7 @@ pub struct Buffer<T> {
 }
 
 pub struct PacketHeader {
-    mut state: State,
+    mut state: State_,
     mut blocked_task: *rust_task,
 
     // This is a reinterpret_cast of a ~buffer, that can also be cast
@@ -150,7 +172,7 @@ pub struct PacketHeader {
 
 pub fn PacketHeader() -> PacketHeader {
     PacketHeader {
-        state: Empty,
+        state: Empty.hide(),
         blocked_task: ptr::null(),
         buffer: ptr::null()
     }
@@ -174,8 +196,8 @@ pub impl PacketHeader {
         }
         match swap_state_acq(&mut self.state, Empty) {
           Empty | Blocked => (),
-          Terminated => self.state = Terminated,
-          Full => self.state = Full
+          Terminated => self.state = Terminated.hide(),
+          Full => self.state = Full.hide()
         }
     }
 
@@ -326,16 +348,18 @@ fn wait_event(this: *rust_task) -> *libc::c_void {
 }
 
 #[doc(hidden)]
-fn swap_state_acq(dst: &mut State, src: State) -> State {
+fn swap_state_acq(dst: &mut State_, src: State) -> State {
     unsafe {
-        transmute(intrinsics::atomic_xchg_acq(transmute(dst), src as int))
+        let old : State_ = transmute(intrinsics::atomic_xchg_acq(transmute(dst), *(src.hide())));
+        old.show()
     }
 }
 
 #[doc(hidden)]
-fn swap_state_rel(dst: &mut State, src: State) -> State {
+fn swap_state_rel(dst: &mut State_, src: State) -> State {
     unsafe {
-        transmute(intrinsics::atomic_xchg_rel(transmute(dst), src as int))
+        let old : State_ = transmute(intrinsics::atomic_xchg_rel(transmute(dst), *(src.hide())));
+        old.show()
     }
 }
 
@@ -450,7 +474,7 @@ pub fn try_recv<T:Owned,Tbuffer:Owned>(p: RecvPacketBuffered<T, Tbuffer>)
 
         drop {
             if task::failing() {
-                self.p.state = Terminated;
+                self.p.state = Terminated.hide();
                 let old_task = swap_task(&mut self.p.blocked_task,
                                          ptr::null());
                 if !old_task.is_null() {
@@ -465,11 +489,11 @@ pub fn try_recv<T:Owned,Tbuffer:Owned>(p: RecvPacketBuffered<T, Tbuffer>)
     let _drop_state = DropState { p: &p.header };
 
     // optimistic path
-    match p.header.state {
+    match p.header.state.show() {
       Full => {
         let mut payload = None;
         payload <-> p.payload;
-        p.header.state = Empty;
+        p.header.state = Empty.hide();
         return Some(option::unwrap(payload))
       },
       Terminated => return None,
@@ -527,7 +551,7 @@ pub fn try_recv<T:Owned,Tbuffer:Owned>(p: RecvPacketBuffered<T, Tbuffer>)
                     rustrt::rust_task_deref(old_task);
                 }
             }
-            p.header.state = Empty;
+            p.header.state = Empty.hide();
             return Some(option::unwrap(payload))
           }
           Terminated => {
@@ -550,7 +574,7 @@ pub fn try_recv<T:Owned,Tbuffer:Owned>(p: RecvPacketBuffered<T, Tbuffer>)
 
 /// Returns true if messages are available.
 pub pure fn peek<T:Owned,Tb:Owned>(p: &RecvPacketBuffered<T, Tb>) -> bool {
-    match unsafe {(*p.header()).state} {
+    match unsafe {(*p.header()).state}.show() {
       Empty | Terminated => false,
       Blocked => fail!(~"peeking on blocked packet"),
       Full => true
@@ -639,7 +663,7 @@ pub fn wait_many<T: Selectable>(pkts: &[T]) -> uint {
               Full | Terminated => {
                 data_avail = true;
                 ready_packet = i;
-                (*p).state = old;
+                (*p).state = old.hide();
                 break;
               }
               Blocked => fail!(~"blocking on blocked packet"),
@@ -669,8 +693,8 @@ pub fn wait_many<T: Selectable>(pkts: &[T]) -> uint {
     debug!("%?, %?", ready_packet, pkts[ready_packet]);
 
     unsafe {
-        fail_unless!((*pkts[ready_packet].header()).state == Full
-                     || (*pkts[ready_packet].header()).state == Terminated);
+        fail_unless!((*pkts[ready_packet].header()).state.show() == Full
+                     || (*pkts[ready_packet].header()).state.show() == Terminated);
     }
 
     ready_packet

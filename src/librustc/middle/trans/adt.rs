@@ -360,9 +360,10 @@ fn load_discr(bcx: block, scrutinee: ValueRef, it: IntType, min: Disr, max: Disr
     } else {
         // llvm::ConstantRange can deal with ranges that wrap around,
         // so an overflow on (max + 1) is fine.
+        debug!("LRA: %? %? %?", min, max, it);
         LoadRangeAssert(bcx, ptr, min as c_ulonglong,
                         (max + 1) as c_ulonglong,
-                        /* signed: */ True)
+                        if it.signed { True } else { False })
     }
 }
 
