@@ -13,7 +13,7 @@
 use core::prelude::*;
 
 use ast;
-use codemap::{spanned, dummy_spanned};
+use codemap::{span, spanned, dummy_spanned};
 use attr;
 use codemap::BytePos;
 use diagnostic::span_handler;
@@ -356,6 +356,115 @@ pub fn find_inline_attr(attrs: &[ast::attribute]) -> inline_attr {
           }
           _ => ia
         }
+    }
+}
+
+#[deriving_eq]
+pub enum RepresentationAttr {
+    ReprAny,
+    ReprIntegral(IntType),
+    ReprStruct,
+    ReprUnionAndInt(IntType),
+    ReprUnrecognized(span)
+}
+
+#[deriving_eq]
+pub enum IntType {
+    AnyInt,
+    SignedInt(ast::int_ty),
+    UnsignedInt(ast::uint_ty),
+   // TODO: C enum compatibility (depends on target ABI); c_int etc.
+}
+
+impl RepresentationAttr {
+    /**
+     * Is a representation safe to use for interfacing to a C function?
+     *
+     * This assumes that all fields of the annotated types are themselves safe to use.
+     */
+    fn is_c_compatible(&self) -> bool {
+        match *self {
+            ReprStruct => true,
+            ReprIntegral(it) | ReprUnionAndInt(it) => {
+                match it {
+                    AnyInt => false,
+                    SignedInt(ast::ty_i) => false,
+                    UnsignedInt(ast::ty_u) => false,
+                    _ => true
+                }
+            }
+            _ => false
+        }
+    }
+}
+
+/**
+ * Searches for and parses `#[represent(...)]` attributes, which specify how
+ * to represent enums (or, in principle, structs).
+ *
+ * Syntax, where `INT` can be any of `i8`, `u8`, `i16`, `u16`, `i32`, `u32`,
+ * `i64`, `u64`, `char`, `int`, or `uint`:
+ *
+ * - `#[represent(integral)]`: represent as any integer type
+ * - `#[represent(integral(INT))]`: represent as a specific integer type
+ * - `#[represent(INT)]`: shorthand for `integral(INT)`
+ * - `#[represent(struct)]`: represent as a struct
+ * - `#[represent(union_and_int)]`: represent as a union, with a case for each variant of the enum,
+ *   where all cases begin with an integer field holding the discriminant.
+ * - `#[represent(union_and_int(INT))]`: as above, but with a specified type of the discriminant.
+ */
+pub fn find_representation_attr(attrs: &[ast::attribute]) -> RepresentationAttr {
+    // NOTE Should this be able to warn if an unrecognized hint is present?
+    do vec::foldl(ReprAny, attrs) |not_here, attr| {
+        let bad = ReprUnrecognized(attr.span);
+        match attr.node.value.node {
+            ast::meta_list(@~"represent", [item]) => {
+                match item.node {
+                    ast::meta_word(@~"integral") => ReprIntegral(AnyInt),
+                    ast::meta_list(@~"integral", [int_item]) => {
+                        match int_item.node {
+                            ast::meta_word(str) => {
+                                int_type_of_word(*str).map_default(bad, |it| ReprIntegral(*it))
+                            }
+                            _ => bad
+                        }
+                    }
+                    ast::meta_word(@~"struct") => ReprStruct,
+                    ast::meta_word(@~"union_and_int") => ReprUnionAndInt(AnyInt),
+                    ast::meta_list(@~"union_and_int", [int_item]) => {
+                        match int_item.node {
+                            ast::meta_word(str) => {
+                                int_type_of_word(*str).map_default(bad, |it| ReprUnionAndInt(*it))
+                            }
+                            _ => bad
+                        }
+                    }
+                    ast::meta_word(other) => {
+                        int_type_of_word(*other).map_default(not_here, |it| ReprIntegral(*it))
+                    }
+                    _ => bad
+                }
+            }
+            ast::meta_word(@~"represent") | ast::meta_name_value(@~"represent", _) => bad,
+            _ => not_here
+        }
+    }
+}
+
+fn int_type_of_word(s: &str) -> Option<IntType> {
+    match s {
+        "i8" => Some(SignedInt(ast::ty_i8)),
+        "u8" => Some(UnsignedInt(ast::ty_u8)),
+        "i16" => Some(SignedInt(ast::ty_i16)),
+        "u16" => Some(UnsignedInt(ast::ty_u16)),
+        "i32" => Some(SignedInt(ast::ty_i32)),
+        "u32" => Some(UnsignedInt(ast::ty_u32)),
+        "i64" => Some(SignedInt(ast::ty_i64)),
+        "u64" => Some(UnsignedInt(ast::ty_u64)),
+        "char" => Some(SignedInt(ast::ty_char)),
+        "int" => Some(SignedInt(ast::ty_i)),
+        "uint" => Some(UnsignedInt(ast::ty_u)),
+        _ => None
     }
 }
 
