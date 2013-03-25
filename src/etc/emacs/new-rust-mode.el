@@ -133,6 +133,82 @@
 	      adaptive-fill-regexp)))
 	(fill-region start end justify)))))
 
+
+;; The indent function.  Our intuitions here are:
+;;
+;; * The indentation of a line is the indentation of the point after
+;;   any leading closing delimeters.
+;;
+;; * Two points belonging to the same node of the token tree should
+;;   have the same indentation.
+;;
+;; * An open delimiter at the end of the line (modulo whitespace and
+;;   comments) indents by one unit relative to its context; otherwise,
+;;   the contents are indented to the starting column of that
+;;   non-space text.
+;;
+;; * If a line has multiple open delimiters, only the last takes effect.
+;;
+;; So this function, which attempts to indent a line by reference to
+;; previous lines, walks backwards, stepping over sexps, until it
+;; finds a line it can use as a reference for the current one.
+;;
+;; Unimplemented:
+;;
+;; * A statement continued over multiple lines should indent lines
+;;   after the first by one unit.  This will require caring about
+;;   semicolons.
+
+(defun new-rust-indent-line ()
+  (interactive)
+  (let ((target 0))
+    (save-excursion
+      (beginning-of-line)
+      (while (zerop (syntax-class (syntax-after (point))))
+	(forward-char))
+      (when (< (point) (point-at-eol))
+	(forward-char))
+      (let ((limit (save-excursion
+		     (beginning-of-line)
+		     (re-search-backward "[^[:space:]]" (point-min) 'move)
+		     (point)))
+	    close-paren open-paren)
+	(while (or (> (point) (point-at-bol))
+		   (>= (point) limit)
+		   close-paren)
+	  (let ((sc (syntax-class (syntax-after (- (point) 1)))))
+	    (cond
+	     ((and close-paren (/= sc 0)) ; not space and inside sexp
+	      (goto-char close-paren)
+	      (setq close-paren nil)
+	      (backward-sexp))
+	     ((eq sc 4) ; open
+	      (backward-char)
+	      (if (not open-paren)
+		  (setq open-paren (point))))
+	     ((eq sc 5) ; close
+	      (if (not close-paren)
+		  (setq close-paren (point)))
+	      (backward-char))
+	     ;; FIXME: this is wrong for strings and comments
+	     (t
+	      (backward-char)))))
+	(let ((ref-indent (current-indentation)))
+	  ;; (message (format "point=%d ref-indent=%d open-paren=%s"
+	  ;; 		   (point) ref-indent open-paren))
+	  (if open-paren
+	      (save-excursion
+		(goto-char (+ open-paren 1))
+		(while (forward-comment 1))
+		(let ((thing-indent (- (point) (point-at-bol))))
+		  ;; Did the open paren end its line? (modulo space/comments)
+		  (if (= thing-indent (current-indentation))
+		      (setq target (+ ref-indent new-rust-indent-unit))
+		    (setq target thing-indent))))
+	    (setq target ref-indent)))))
+    (indent-line-to target)))
+
+
 ;;;###autoload
 (define-derived-mode new-rust-mode prog-mode "New Rust"
   "Major mode for editing source code in the Rust language."
@@ -150,7 +226,9 @@
   (set (make-local-variable 'comment-style) 'extra-line) ; controversial?
   (set (make-local-variable 'comment-multi-line) t)
 
-  (setq fill-column new-rust-fill-column)
+  (setq indent-tabs-mode nil
+	fill-column new-rust-fill-column)
+  (set (make-local-variable 'indent-line-function) 'new-rust-indent-line)
 )
 
 (provide 'new-rust-mode)
