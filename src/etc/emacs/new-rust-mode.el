@@ -164,15 +164,15 @@
   (let ((target 0))
     (save-excursion
       (beginning-of-line)
-      (while (zerop (syntax-class (syntax-after (point))))
+      (while (zerop (syntax-class (syntax-after (point)))) ; space
 	(forward-char))
-      (when (< (point) (point-at-eol))
+      (while (eq (syntax-class (syntax-after (point))) 5) ; close
 	(forward-char))
       (let ((limit (save-excursion
 		     (beginning-of-line)
 		     (re-search-backward "[^[:space:]]" (point-min) 'move)
 		     (point)))
-	    close-paren open-paren)
+	    close-paren open-paren (started (point)))
 	(while (or (> (point) (point-at-bol))
 		   (>= (point) limit)
 		   close-paren)
@@ -190,12 +190,17 @@
 	      (if (not close-paren)
 		  (setq close-paren (point)))
 	      (backward-char))
-	     ;; FIXME: this is wrong for strings and comments
+	     ((eq sc 7) ; string delimiter
+	      (backward-sexp))
+	     ((or (eq sc 1) (eq sc 12)) ; punctuation or newline
+	      ;; FIXME: this should check the comment-end flags directly
+	      (or (forward-comment -1)
+		  (backward-char)))
 	     (t
 	      (backward-char)))))
 	(let ((ref-indent (current-indentation)))
-	  ;; (message (format "point=%d ref-indent=%d open-paren=%s"
-	  ;; 		   (point) ref-indent open-paren))
+	  ;; (message (format "point=%d ref-indent=%d open-paren=%s started=%d"
+	  ;;  		   (point) ref-indent open-paren started))
 	  (if open-paren
 	      (save-excursion
 		(goto-char (+ open-paren 1))
@@ -204,6 +209,7 @@
 		  ;; Did the open paren end its line? (modulo space/comments)
 		  (if (= thing-indent (current-indentation))
 		      (setq target (+ ref-indent new-rust-indent-unit))
+		    ;; FIXME: should skip only space, not comments, here?
 		    (setq target thing-indent))))
 	    (setq target ref-indent)))))
     (indent-line-to target)))
