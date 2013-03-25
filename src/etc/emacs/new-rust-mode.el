@@ -5,38 +5,57 @@
 (defvar new-rust-indent-unit 4)
 (defvar new-rust-fill-column 100)
 
-(defvar new-rust-syntax-table 
+(defvar new-rust-syntax-table
   (let ((table (make-syntax-table)))
     (c-populate-syntax-table table)
     (modify-syntax-entry ?' "." table)
     table))
 
 (defconst new-rust-font-lock-keywords
+  ;; FIXME: this will not get non-ASCII code right, but I don't
+  ;; understand Emacs regexp well enough to fix it.
   `(
-    ("\\_<\\(fn\\|mod\\|use\\)[[:space:]]+\\([a-zA-Z_][a-zA-Z_0-9]*\\)\\_>" 2 font-lock-function-name-face)
+    ; Keywords:
+    (,(regexp-opt '("mod" "type" "struct" "fn" "enum" "impl"
+		    "as" "break" "copy" "do" "else" "extern" "for" "if"
+		    "match" "let" "loop" "once" "priv" "pub" "ref" "return"
+		    "static" "unsafe" "use" "while" "mut") 'symbols)
+     . font-lock-keyword-face)
+
+    ; Character constants (and not region variables). FIXME: syntactic-ize this so that '(' doesn't match ).
+    ("'\\([^']\\|\\\\\\([ntr\"'\\\\]\\|x[0-9A-Fa-f]\\{2\\}\\|u[0-9A-Fa-f]\\{4\\}\\|U[0-9A-Fa-f]\\{8\\}\\)\\)'" . font-lock-string-face)
+
+    ; Macro names:
+    ("\\_<[a-zA-Z_][a-zA-Z_0-9]*!" 0 font-lock-preprocessor-face)
+    ; Module names:
+    ("\\_<\\([a-zA-Z_][a-zA-Z_0-9]*\\)\\s *::" 1 font-lock-builtin-face)
+    ; Typed names -- fn args, struct fields, statics, etc.:
+    ("\\_<\\([a-zA-Z_][a-zA-Z_0-9]*\\)\\s *:" 1 font-lock-variable-name-face)
+    ; CamelCase (and EMPHATIC_CONSTANT) names:
+    ("\\_<[A-Z][a-zA-Z_0-9]*\\_>" . font-lock-type-face)
+
+    ; Directives; nested instances of higher-priority syntax (e.g.,
+    ; strings and CamelCase) will not prevent this from matching, but
+    ; will retain their regular markup.  Multi-line directives may not
+    ; be recognized due to limitations of font-lock.
+    ("#\\[[^]]*\\]" 0 font-lock-preprocessor-face keep)
+
+    ; Numeric constants. More permissive than the spec, but I think it agrees within the set of valid programs.
+    ("\\_<[0-9][bx]?[0-9_]*\\([ui][0-9]*\\|\\(\\.[0-9_]+\\)?\\([eE][-+]?[0-9_]+\\)?\\(f[0-9]+\\)?\\)\\_>" . font-lock-constant-face)
+
+    ; Identifiers being bound, relatively early in the list for cases like `mod int`.
+    ; `static` is a deliberate omission; see above for type ascriptions and camel case.
+    ; `use` could be added, but would need to skip the leading path.
+    ("\\_<\\(fn\\|mod\\)[[:space:]]+\\([a-zA-Z_][a-zA-Z_0-9]*\\)\\_>" 2 font-lock-function-name-face)
     ("\\_<let[[:space:]]+\\(mut[[:space:]]+\\)?\\([a-zA-Z_][a-zA-Z_0-9]*\\)\\_>" 2 font-lock-variable-name-face)
     ("\\_<\\(type\\|struct\\|enum\\)[[:space:]]+\\([a-zA-Z_][a-zA-Z_0-9]*\\)\\_>" 2 font-lock-type-face)
 
-    (,(regexp-opt '("mod" "type" "struct" "fn" "enum" "impl"
-		    "as" "break" "copy" "do" "else" "extern" "for" "if"
-		    "match" "let" "loop" "once""priv" "pub" "ref" "return" 
-		    "static" "unsafe" "use" "while" "mut") 'symbols)
-     . font-lock-keyword-face)
+    ; Semi-reserved words:
     (,(regexp-opt '("int" "uint" "i64" "u64" "i32" "u32" "i16" "u16"
 		    "i8" "u8" "char" "bool") 'symbols)
      . font-lock-builtin-face)
     (,(regexp-opt '("self" "true" "false") 'symbols)
      . font-lock-constant-face)
-
-    ("'\\([^']\\|\\\\\\([ntr\"'\\\\]\\|x[0-9A-Fa-f][0-9A-Fa-f]\\|u[0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f]\\|U[0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f]\\)\\)'" . font-lock-string-face)
-
-    ("\\_<\\([a-zA-Z_][a-zA-Z_0-9]*\\)::" 1 font-lock-builtin-face)
-    ("\\([a-zA-Z_][a-zA-Z_0-9]*\\):" 1 font-lock-variable-name-face)
-    ("\\_<[A-Z][a-zA-Z_0-9]*\\_>" . font-lock-type-face)
-    ("\\_<[a-zA-Z_][a-zA-Z_0-9]*!\\|#\\(\\[[^]]*\\]\\)?" 0 font-lock-preprocessor-face t)
-
-    ("\\_<[0-9][bx]?[0-9_]*\\([ui][0-9]*\\|\\(\\.[0-9_]+\\)?\\([eE][-+]?[0-9_]+\\)?\\(f[0-9]+\\)?\\)\\_>" . font-lock-constant-face)
-
     ))
 
 (defun new-rust-fill-paragraph (&optional justify)
@@ -116,7 +135,7 @@
   "Major mode for editing source code in the Rust language."
   (set-syntax-table new-rust-syntax-table)
   (run-hooks 'new-rust-mode-hook)
-  (set (make-local-variable 'font-lock-defaults) 
+  (set (make-local-variable 'font-lock-defaults)
        '(new-rust-font-lock-keywords))
 
   (set (make-local-variable 'fill-paragraph-function)
