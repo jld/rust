@@ -142,6 +142,8 @@
 ;; * Two points belonging to the same node of the token tree should
 ;;   have the same indentation.
 ;;
+;; As applied to these slightly fuzzy rules:
+;;
 ;; * An open delimiter at the end of the line (modulo whitespace and
 ;;   comments) indents by one unit relative to its context; otherwise,
 ;;   the contents are indented to the starting column of that
@@ -149,70 +151,91 @@
 ;;
 ;; * If a line has multiple open delimiters, only the last takes effect.
 ;;
+;; * A thing which is normally delimited with a semicolon or comma
+;;   (statement, expression, etc.), if continued over multiple lines,
+;;   should indent lines after the first by one unit.
+;;
 ;; So this function, which attempts to indent a line by reference to
 ;; previous lines, walks backwards, stepping over sexps, until it
 ;; finds a line it can use as a reference for the current one.
-;;
-;; Unimplemented:
-;;
-;; * A statement continued over multiple lines should indent lines
-;;   after the first by one unit.  This will require caring about
-;;   semicolons.
 
 (defun new-rust-indent-line ()
   (interactive)
-  (let ((target 0))
-    (save-excursion
-      (beginning-of-line)
-      (while (zerop (syntax-class (syntax-after (point)))) ; space
-	(forward-char))
-      (while (eq (syntax-class (syntax-after (point))) 5) ; close
-	(forward-char))
-      (let ((limit (save-excursion
-		     (beginning-of-line)
-		     (re-search-backward "[^[:space:]]" (point-min) 'move)
-		     (point)))
-	    close-paren open-paren (started (point)))
-	(while (or (> (point) (point-at-bol))
-		   (>= (point) limit)
-		   close-paren)
-	  (let ((sc (syntax-class (syntax-after (- (point) 1)))))
+  (let ((target 0) end-of-space end-of-close)
+    (when (> (point-at-bol) (point-min))
+      (save-excursion
+	(beginning-of-line)
+	(while (zerop (syntax-class (syntax-after (point)))) ; space
+	  (forward-char))
+	(setq end-of-space (point))
+	(while (eq (syntax-class (syntax-after (point))) 5) ; close
+	  (forward-char))
+	(setq end-of-close (point))
+	(let ((limit (save-excursion
+		       (beginning-of-line)
+		       (re-search-backward "[^[:space:]]" (point-min) 'move)
+		       (point)))
+	      close-paren open-paren)
+	  (while (or (> (point) (point-at-bol))
+		     (>= (point) limit)
+		     close-paren)
+	    (let ((sc (syntax-class (syntax-after (- (point) 1)))))
+	      (cond
+	       ((and close-paren (/= sc 0)) ; not space and inside sexp
+		(goto-char close-paren)
+		(setq close-paren nil)
+		(backward-sexp))
+	       ((eq sc 4) ; open
+		(backward-char)
+		(if (not open-paren)
+		    (setq open-paren (point))))
+	       ((eq sc 5) ; close
+		(if (not close-paren)
+		    (setq close-paren (point)))
+		(backward-char))
+	       ((eq sc 7) ; string delimiter
+		;; FIXME: this is wrong if we were inside a multiline string.
+		;; (How do we detect that? Look for class 9 before 12?)
+		(backward-sexp))
+	       ((or (eq sc 1) (eq sc 12)) ; punctuation or newline
+		;; That should probably be a flag test for comment endings.
+		(if (= (prog1 (point) (forward-comment -1)) (point))
+		    (backward-char)))
+	       (t
+		(backward-char)))))
+	  (let ((ref-indent (current-indentation)))
+	    (message "point=%d ref-indent=%d open-paren=%s limit=%d"
+		     (point) ref-indent open-paren limit)
 	    (cond
-	     ((and close-paren (/= sc 0)) ; not space and inside sexp
-	      (goto-char close-paren)
-	      (setq close-paren nil)
-	      (backward-sexp))
-	     ((eq sc 4) ; open
-	      (backward-char)
-	      (if (not open-paren)
-		  (setq open-paren (point))))
-	     ((eq sc 5) ; close
-	      (if (not close-paren)
-		  (setq close-paren (point)))
-	      (backward-char))
-	     ((eq sc 7) ; string delimiter
-	      (backward-sexp))
-	     ((or (eq sc 1) (eq sc 12)) ; punctuation or newline
-	      ;; FIXME: this should check the comment-end flags directly
-	      (or (forward-comment -1)
-		  (backward-char)))
-	     (t
-	      (backward-char)))))
-	(let ((ref-indent (current-indentation)))
-	  ;; (message (format "point=%d ref-indent=%d open-paren=%s started=%d"
-	  ;;  		   (point) ref-indent open-paren started))
-	  (if open-paren
+	     (open-paren
 	      (save-excursion
 		(goto-char (+ open-paren 1))
 		(while (forward-comment 1))
 		(let ((thing-indent (- (point) (point-at-bol))))
-		  ;; Did the open paren end its line? (modulo space/comments)
+		  ;; Did the open paren end its line? (mod space/comments)
 		  (if (= thing-indent (current-indentation))
 		      (setq target (+ ref-indent new-rust-indent-unit))
-		    ;; FIXME: should skip only space, not comments, here?
-		    (setq target thing-indent))))
-	    (setq target ref-indent)))))
+		    ;; FIXME: should we not skip comments to set the indent?
+		    (setq target thing-indent)))))
+	     ;; If we might be continuing, or not continuing, a thing:
+	     ((= end-of-space end-of-close)
+	      (let ((delta (- (if (new-rust-proper-ending (point-at-bol)) 1 0)
+			      (if (new-rust-proper-ending end-of-space) 1 0))))
+		(setq target (+ ref-indent (* delta new-rust-indent-unit)))))
+	     (t
+	      (setq target ref-indent)))))))
     (indent-line-to target)))
+
+(defun new-rust-proper-ending (pt)
+  (save-excursion
+    (goto-char pt)
+    (while (forward-comment -1))
+    (or
+     (<= (point) (point-min))
+     (case (syntax-class (syntax-after (- (point) 1)))
+       ((4 5) t)
+       ((1) (and (memq (char-before) '(?, ?\;)) t))
+       (otherwise nil)))))
 
 
 ;;;###autoload
