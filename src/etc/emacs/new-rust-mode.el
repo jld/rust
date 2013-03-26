@@ -211,25 +211,30 @@
 	  (let ((ref-indent (current-indentation)))
 	    (message "point=%d ref-indent=%d open-paren=%s limit=%d"
 		     (point) ref-indent open-paren limit)
-	    (cond
-	     (open-paren
-	      (save-excursion
-		(goto-char (+ open-paren 1))
-		(while (forward-comment 1))
-		(let ((thing-indent (- (point) (point-at-bol))))
-		  ;; Did the open paren end its line? (mod space/comments)
-		  (if (= thing-indent (current-indentation))
-		      (setq target (+ ref-indent new-rust-indent-unit))
-		    ;; FIXME: should we not skip comments to set the indent?
-		    (setq target thing-indent)))))
-	     ;; If we might be continuing, or not continuing, a thing:
-	     ((= end-of-space end-of-close)
+	    ;; If we might be continuing, or not continuing, a thing:
+	    (when (= end-of-space end-of-close)
 	      ;; Compare this line's continuedness to the reference.
 	      (let ((delta (- (if (new-rust-proper-ending (point-at-bol)) 1 0)
 			      (if (new-rust-proper-ending end-of-space) 1 0))))
-		(setq target (+ ref-indent (* delta new-rust-indent-unit)))))
-	     (t
-	      (setq target ref-indent)))))))
+		(setq ref-indent (+ ref-indent
+				    (* delta new-rust-indent-unit)))))
+	    (if open-paren
+		(save-excursion
+		  (goto-char (+ open-paren 1))
+		  (let* ((found-nonspace (re-search-forward "[^[:space:]]"
+							    (point-at-eol) t))
+			 (after-comment (and found-nonspace
+					     (while (forward-comment 1)))))
+		    ;; Did the open paren end its line? (mod space/comments)
+		    (if (or (not found-nonspace)
+			    (= (current-indentation)
+			       (- (point) (point-at-bol))))
+			(setq target (+ ref-indent new-rust-indent-unit))
+		      ;; If not, then indent to first nonspace.
+		      ;; (Which might be a comment.)
+		      (setq target (progn (goto-char (- found-nonspace 1))
+					  (- (point) (point-at-bol)))))))
+	    (setq target ref-indent))))))
     (indent-line-to target)))
 
 (defun new-rust-proper-ending (pt)
@@ -238,10 +243,7 @@
     (while (forward-comment -1))
     (or
      (<= (point) (point-min))
-     (case (syntax-class (syntax-after (- (point) 1)))
-       ((4 5) t)
-       ((1) (and (memq (char-before) '(?, ?\;)) t))
-       (otherwise nil)))))
+     (and (memq (char-before) '(?, ?\; ?{ ?} ?\( ?\[)) t))))
 
 
 ;;;###autoload
