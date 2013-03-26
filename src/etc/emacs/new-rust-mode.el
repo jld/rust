@@ -176,6 +176,9 @@
 		       (re-search-backward "[^[:space:]]" (point-min) 'move)
 		       (point)))
 	      close-paren open-paren)
+	  ;; The goal: reach the start of a line, no later than the
+	  ;; previous non-empty line, when there isn't a deferred
+	  ;; backward-sexp left to run.
 	  (while (or (> (point) (point-at-bol))
 		     (>= (point) limit)
 		     close-paren)
@@ -198,7 +201,9 @@
 		;; (How do we detect that? Look for class 9 before 12?)
 		(backward-sexp))
 	       ((or (eq sc 1) (eq sc 12)) ; punctuation or newline
-		;; That should probably be a flag test for comment endings.
+		;; That should be a test for the comment endings
+		;; flags, not classes.  This attempts to skip over a
+		;; comment, or just the character if it wasn't:
 		(if (= (prog1 (point) (forward-comment -1)) (point))
 		    (backward-char)))
 	       (t
@@ -219,6 +224,7 @@
 		    (setq target thing-indent)))))
 	     ;; If we might be continuing, or not continuing, a thing:
 	     ((= end-of-space end-of-close)
+	      ;; Compare this line's continuedness to the reference.
 	      (let ((delta (- (if (new-rust-proper-ending (point-at-bol)) 1 0)
 			      (if (new-rust-proper-ending end-of-space) 1 0))))
 		(setq target (+ ref-indent (* delta new-rust-indent-unit)))))
