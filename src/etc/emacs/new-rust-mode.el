@@ -211,13 +211,11 @@
 	  (let ((ref-indent (current-indentation)))
 	    (message "point=%d ref-indent=%d open-paren=%s limit=%d"
 		     (point) ref-indent open-paren limit)
-	    ;; If we might be continuing, or not continuing, a thing:
-	    (when (= end-of-space end-of-close)
-	      ;; Compare this line's continuedness to the reference.
-	      (let ((delta (- (if (new-rust-proper-ending (point-at-bol)) 1 0)
-			      (if (new-rust-proper-ending end-of-space) 1 0))))
-		(setq ref-indent (+ ref-indent
-				    (* delta new-rust-indent-unit)))))
+	    ;; Compare this line's continuedness to the reference.
+	    (let ((delta (- (if (new-rust-proper-ending (point-at-bol)) 1 0)
+			    (if (new-rust-proper-ending end-of-close) 1 0))))
+	      (setq ref-indent (+ ref-indent
+				  (* delta new-rust-indent-unit))))
 	    (if open-paren
 		(save-excursion
 		  (goto-char (+ open-paren 1))
