@@ -161,62 +161,72 @@
 
 (defun new-rust-indent-line ()
   (interactive)
-  (let ((target 0) end-of-space end-of-close)
+  (let (target (start-point (point)))
     (when (> (point-at-bol) (point-min))
       (save-excursion
-	(beginning-of-line)
-	(while (zerop (syntax-class (syntax-after (point)))) ; space
-	  (forward-char))
-	(setq end-of-space (point))
-	(while (eq (syntax-class (syntax-after (point))) 5) ; close
-	  (forward-char))
-	(setq end-of-close (point))
-	(let ((limit (save-excursion
-		       (beginning-of-line)
-		       (re-search-backward "[^[:space:]]" (point-min) 'move)
-		       (point)))
-	      close-paren open-paren)
-	  ;; The goal: reach the start of a line, no later than the
-	  ;; previous non-empty line, when there isn't a deferred
-	  ;; backward-sexp left to run.
-	  (while (or (> (point) (point-at-bol))
-		     (>= (point) limit)
-		     close-paren)
-	    (let ((sc (syntax-class (syntax-after (- (point) 1)))))
-	      (cond
-	       ((and close-paren (/= sc 0)) ; not space and inside sexp
-		(goto-char close-paren)
-		(setq close-paren nil)
-		(backward-sexp))
-	       ((eq sc 4) ; open
-		(backward-char)
-		(if (not open-paren)
-		    (setq open-paren (point))))
-	       ((eq sc 5) ; close
-		(if (not close-paren)
-		    (setq close-paren (point)))
-		(backward-char))
-	       ((eq sc 7) ; string delimiter
-		;; FIXME: this is wrong if we were inside a multiline string.
-		;; (How do we detect that? Look for class 9 before 12?)
-		(backward-sexp))
-	       ((or (eq sc 1) (eq sc 12)) ; punctuation or newline
-		;; That should be a test for the comment endings
-		;; flags, not classes.  This attempts to skip over a
-		;; comment, or just the character if it wasn't:
-		(if (= (prog1 (point) (forward-comment -1)) (point))
-		    (backward-char)))
-	       (t
-		(backward-char)))))
-	  (let ((ref-indent (current-indentation)))
-	    (message "point=%d ref-indent=%d open-paren=%s limit=%d"
-		     (point) ref-indent open-paren limit)
-	    ;; Compare this line's continuedness to the reference.
-	    (let ((delta (- (if (new-rust-proper-ending (point-at-bol)) 1 0)
-			    (if (new-rust-proper-ending end-of-close) 1 0))))
-	      (setq ref-indent (+ ref-indent
-				  (* delta new-rust-indent-unit))))
-	    (if open-paren
+	(forward-to-indentation 0)
+ 	(case (char-after)
+	  ((?\) ?\]) 
+	   ;; Indent to column of opening paren
+	   (forward-char)
+	   (backward-sexp)
+	   (setq target (- (point) (point-at-bol))))
+	  (?}
+	   (forward-char)))
+	(unless target
+	  (let ((limit (save-excursion ; XXX this is wrong
+			 (beginning-of-line)
+			 (re-search-backward "[^[:space:]]" (point-min) 'move)
+			 (point)))
+		close-paren open-paren)
+	    ;; The goal: reach the start of a line, no later than the
+	    ;; previous non-empty line, when there isn't a deferred
+	    ;; backward-sexp left to run.
+	    (while (or (> (point) (point-at-bol))
+		       (>= (point) limit)
+		       close-paren)
+	      (let ((sc (syntax-class (syntax-after (- (point) 1)))))
+		(cond
+		 ((and close-paren (/= sc 0)) ; not space and inside sexp
+		  (goto-char close-paren)
+		  (setq close-paren nil
+			;; Ignore opens for the rest of this line
+			open-paren (or open-paren 
+				       (cons 'ignore (point-at-bol))))
+		  (backward-sexp))
+		 ((eq sc 4) ; open
+		  (backward-char)
+		  ;; Reset open-ignoring if we've changed lines.
+		  (when (and (consp open-paren)
+			     (eq (car open-paren) 'ignore)
+			     (< (point) (cdr open-paren)))
+		    (setq open-paren nil))
+		  (setq open-paren (or open-paren (point))))
+		 ((eq sc 5) ; close
+		  (setq close-paren (or close-paren (point)))
+		  (backward-char))
+		 ((eq sc 7) ; string delimiter
+		  ;; FIXME: this is wrong if we were inside a multiline string.
+		  ;; (How do we detect that? Look for class 9 before 12?)
+		  (backward-sexp))
+		 ((or (eq sc 1) (eq sc 12)) ; punctuation or newline
+		  ;; That should be a test for the comment endings
+		  ;; flags, not classes.  This attempts to skip over a
+		  ;; comment, or just the character if it wasn't:
+		  (if (= (prog1 (point) (forward-comment -1)) (point))
+		      (backward-char)))
+		 (t
+		  (backward-char)))))
+	    (setq open-paren (and (number-or-marker-p open-paren) open-paren))
+	    (let ((ref-indent (current-indentation)))
+	      (message "point=%d ref-indent=%d open-paren=%s limit=%d"
+		       (point) ref-indent open-paren limit)
+	      ;; Compare this line's continuedness to the reference.
+	      (let ((delta (- (if (new-rust-proper-ending) 1 0)
+			      (if (new-rust-proper-ending start-point) 1 0))))
+		(setq ref-indent (+ ref-indent
+				    (* delta new-rust-indent-unit))))
+	      (if open-paren
 		(save-excursion
 		  (goto-char (+ open-paren 1))
 		  (let* ((found-nonspace (re-search-forward "[^[:space:]]"
@@ -232,17 +242,27 @@
 		      ;; (Which might be a comment.)
 		      (setq target (progn (goto-char (- found-nonspace 1))
 					  (- (point) (point-at-bol)))))))
-	    (setq target ref-indent))))))
-    (indent-line-to target)))
+		(setq target ref-indent)))))))
+    (indent-line-to (or target 0))))
 
-(defun new-rust-proper-ending (pt)
+(defun new-rust-proper-ending (&optional pt)
   (save-excursion
-    (goto-char pt)
-    (while (forward-comment -1))
+    (when pt (goto-char pt))
+    (forward-to-indentation 0)
     (or
-     (<= (point) (point-min))
-     (and (memq (char-before) '(?, ?\; ?{ ?} ?\( ?\[)) t))))
+     (memq (char-after) '(?{ ?}))
+     (progn
+       (while (forward-comment -1))
+       (or
+	(<= (point) (point-min))
+	(memq (char-before) '(?, ?\; ?} ?\( ?\[ ?{)))))))
 
+;;;; Notes to self:
+;; If bol and any non-ws on line, done: cur-indent.
+;; If } after indentation, done: cur-indent.
+;; If class 4 and not eol-mod-comments, done: column of 1st nonws.
+;; If class 4 and eol-mod-comments, incf adjust and backwards.
+;; Else step back.  Adjust further by proper-ending.
 
 ;;;###autoload
 (define-derived-mode new-rust-mode prog-mode "New Rust"
