@@ -161,12 +161,12 @@
 
 (defun new-rust-indent-line ()
   (interactive)
-  (let (target (start-point (point)))
+  (let (target (orig-bol (point-at-bol)))
     (when (> (point-at-bol) (point-min))
       (save-excursion
 	(forward-to-indentation 0)
  	(case (char-after)
-	  ((?\) ?\]) 
+	  ((?\) ?\])
 	   ;; Indent to column of opening paren
 	   (forward-char)
 	   (backward-sexp)
@@ -174,75 +174,79 @@
 	  (?}
 	   (forward-char)))
 	(unless target
-	  (let ((limit (save-excursion ; XXX this is wrong
-			 (beginning-of-line)
-			 (re-search-backward "[^[:space:]]" (point-min) 'move)
-			 (point)))
-		close-paren open-paren)
-	    ;; The goal: reach the start of a line, no later than the
-	    ;; previous non-empty line, when there isn't a deferred
-	    ;; backward-sexp left to run.
-	    (while (or (> (point) (point-at-bol))
-		       (>= (point) limit)
-		       close-paren)
-	      (let ((sc (syntax-class (syntax-after (- (point) 1)))))
-		(cond
-		 ((and close-paren (/= sc 0)) ; not space and inside sexp
-		  (goto-char close-paren)
-		  (setq close-paren nil
-			;; Ignore opens for the rest of this line
-			open-paren (or open-paren 
-				       (cons 'ignore (point-at-bol))))
-		  (backward-sexp))
-		 ((eq sc 4) ; open
-		  (backward-char)
-		  ;; Reset open-ignoring if we've changed lines.
-		  (when (and (consp open-paren)
-			     (eq (car open-paren) 'ignore)
-			     (< (point) (cdr open-paren)))
-		    (setq open-paren nil))
-		  (setq open-paren (or open-paren (point))))
-		 ((eq sc 5) ; close
-		  (setq close-paren (or close-paren (point)))
-		  (backward-char))
-		 ((eq sc 7) ; string delimiter
-		  ;; FIXME: this is wrong if we were inside a multiline string.
-		  ;; (How do we detect that? Look for class 9 before 12?)
-		  (backward-sexp))
-		 ((or (eq sc 1) (eq sc 12)) ; punctuation or newline
-		  ;; That should be a test for the comment endings
-		  ;; flags, not classes.  This attempts to skip over a
-		  ;; comment, or just the character if it wasn't:
-		  (if (= (prog1 (point) (forward-comment -1)) (point))
-		      (backward-char)))
-		 (t
-		  (backward-char)))))
-	    (setq open-paren (and (number-or-marker-p open-paren) open-paren))
-	    (let ((ref-indent (current-indentation)))
-	      (message "point=%d ref-indent=%d open-paren=%s limit=%d"
-		       (point) ref-indent open-paren limit)
-	      ;; Compare this line's continuedness to the reference.
-	      (let ((delta (- (if (new-rust-proper-ending) 1 0)
-			      (if (new-rust-proper-ending start-point) 1 0))))
-		(setq ref-indent (+ ref-indent
-				    (* delta new-rust-indent-unit))))
-	      (if open-paren
-		(save-excursion
-		  (goto-char (+ open-paren 1))
-		  (let* ((found-nonspace (re-search-forward "[^[:space:]]"
-							    (point-at-eol) t))
-			 (after-comment (and found-nonspace
-					     (while (forward-comment 1)))))
-		    ;; Did the open paren end its line? (mod space/comments)
-		    (if (or (not found-nonspace)
-			    (= (current-indentation)
-			       (- (point) (point-at-bol))))
-			(setq target (+ ref-indent new-rust-indent-unit))
-		      ;; If not, then indent to first nonspace.
-		      ;; (Which might be a comment.)
-		      (setq target (progn (goto-char (- found-nonspace 1))
-					  (- (point) (point-at-bol)))))))
-		(setq target ref-indent)))))))
+	  (save-excursion
+	    (let ((adjust 0) syn sc indent-point no-dedent)
+	      (loop
+	       until (and (<= (point) (point-min))
+			(setq target 0))
+	       do (setq syn (syntax-after (- (point) 1))
+			sc (syntax-class syn)
+			indent-point (+ (point-at-bol) (current-indentation)))
+	       ;; If at bol and any non-ws on line, use cur-indent.
+	       until (and (<= (point) indent-point)
+			  (< (point) orig-bol)
+			  (re-search-forward "[^[:space:]]" (point-at-eol) t)
+			  (progn (backward-char) t)
+			  (setq target (- (point) (point-at-bol))))
+	       ;; If } after indentation, use cur-indent.
+	       until (and (eq (char-before) ?})
+			  (= (point) (+ indent-point 1))
+			  (setq target (current-indentation)))
+	       ;; If at open delimiter, it's complicated:
+	       until (and (or (eq sc 4)
+			      ;; Treat beginning of multiline string as open.
+			      (and (eq sc 7)
+				   (eq (syntax-class
+					(syntax-after
+					 (- (point-at-eol) 1))) 9)))
+			  ;; Anything between it and eol but comments/space?
+			  ;; (This may not need to be so complicated.)
+			  (save-excursion
+			    (let ((found-nonspace
+				   (re-search-forward "[^[:space:]]"
+						      (point-at-eol) t)))
+			      (when found-nonspace
+				(while (forward-comment 1)))
+			      ;; Have we found something other than the start
+			      ;; of a new line or the end of the buffer?
+			      (if (and found-nonspace
+				       (< (point) (point-max))
+				       (< (current-indentation)
+					  (- (point) (point-at-bol))))
+				  ;; If so, indent to first nonspace.
+				  ;; (Which might be a comment.)
+				  (setq target
+					(progn (goto-char (- found-nonspace 1))
+					       (- (point) (point-at-bol)))
+					no-dedent t)
+				;; Otherwise, indent one level and continue.
+				(progn
+				  (incf adjust new-rust-indent-unit)
+				  nil)))))
+	       ;; Otherwise, step back one thing.
+	       do (or
+		   ;; Skip one comment (but only one) or whitespace.
+		   ;; (If it's a comment, we'll land on the first char.)
+		   (let ((p (point)))
+		     (forward-comment -1)
+		     (/= p (point)))
+		   ;; If we're at a non-comment-or-space:
+		   (case sc
+		     ;; Skip over a delimited group or a string.
+		     ;; Also skip an entire symbol at once for efficiency.
+		     ;;
+		     ;; Note: we can't be inside a string here, because (see
+		     ;; above) it will always have nonspace after the
+		     ;; delimiter, for the backslash if nothing else.
+		     ((2 3 5 7) (backward-sexp))
+		     (otherwise (backward-char)))))
+	      (incf target adjust)
+	      ;; Dedent if our reference is a continuation.
+	      (unless (or no-dedent (new-rust-proper-ending (point)))
+		(decf target new-rust-indent-unit))))
+	  ;; Indent if we're a continuation.
+	  (unless (new-rust-proper-ending (point))
+	    (incf target new-rust-indent-unit)))))
     (indent-line-to (or target 0))))
 
 (defun new-rust-proper-ending (&optional pt)
@@ -255,14 +259,8 @@
        (while (forward-comment -1))
        (or
 	(<= (point) (point-min))
-	(memq (char-before) '(?, ?\; ?} ?\( ?\[ ?{)))))))
+	(memq (char-before) '(?, ?\; ?} ?\( ?\[ ?{ ?\\)))))))
 
-;;;; Notes to self:
-;; If bol and any non-ws on line, done: cur-indent.
-;; If } after indentation, done: cur-indent.
-;; If class 4 and not eol-mod-comments, done: column of 1st nonws.
-;; If class 4 and eol-mod-comments, incf adjust and backwards.
-;; Else step back.  Adjust further by proper-ending.
 
 ;;;###autoload
 (define-derived-mode new-rust-mode prog-mode "New Rust"
