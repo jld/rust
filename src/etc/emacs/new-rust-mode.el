@@ -284,4 +284,9 @@
   (set (make-local-variable 'indent-line-function) 'new-rust-indent-line)
 )
 
+;;;###autoload
+(progn
+  (add-to-list 'auto-mode-alist '("\\.rs$" . new-rust-mode))
+  (add-to-list 'auto-mode-alist '("\\.rc$" . new-rust-mode)))
+
 (provide 'new-rust-mode)
