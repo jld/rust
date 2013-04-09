@@ -9,8 +9,14 @@
 (defvar new-rust-syntax-table
   (let ((table (make-syntax-table)))
     (c-populate-syntax-table table)
+    ;; ' is used for region variables, so its syntax class depends on context.
+    ;; (See the syntactic font lock entry below.)
     (modify-syntax-entry ?' "." table)
     table))
+
+(defconst new-rust-font-lock-syntactics
+  ;; Delimiterize single quotes for char literals (and not region variables).
+  '(("\\('\\)\\([^'\\]\\|\\\\\\([ntr\"'\\\\]\\|x[0-9A-Fa-f]\\{2\\}\\|u[0-9A-Fa-f]\\{4\\}\\|U[0-9A-Fa-f]\\{8\\}\\)\\)\\('\\)" (1 "\"") (4 "\""))))
 
 (defconst new-rust-font-lock-keywords
   ;; FIXME: this will not get non-ASCII code right, but I don't
@@ -22,9 +28,6 @@
 		    "match" "let" "loop" "once" "priv" "pub" "ref" "return"
 		    "static" "unsafe" "use" "while" "mut") 'symbols)
      . font-lock-keyword-face)
-
-    ;; Character constants (and not region variables). FIXME: syntactic-ize this so that '(' doesn't match ).
-    ("'\\([^']\\|\\\\\\([ntr\"'\\\\]\\|x[0-9A-Fa-f]\\{2\\}\\|u[0-9A-Fa-f]\\{4\\}\\|U[0-9A-Fa-f]\\{8\\}\\)\\)'" . font-lock-string-face)
 
     ;; Macro names:
     ("\\_<[a-zA-Z_][a-zA-Z_0-9]*!" 0 font-lock-preprocessor-face)
@@ -269,7 +272,10 @@
   (set-syntax-table new-rust-syntax-table)
   (run-hooks 'new-rust-mode-hook)
   (set (make-local-variable 'font-lock-defaults)
-       '(new-rust-font-lock-keywords))
+       `(new-rust-font-lock-keywords
+	 nil nil nil nil
+	 (font-lock-syntactic-keywords
+	  . ,new-rust-font-lock-syntactics)))
 
   (set (make-local-variable 'fill-paragraph-function)
        'new-rust-fill-paragraph)
