@@ -170,7 +170,7 @@
 	(forward-to-indentation 0)
  	(case (char-after)
 	  ((?\) ?\])
-	   ;; Indent to column of opening paren
+	   ;; Indent to column of opening paren.
 	   (forward-char)
 	   (backward-sexp)
 	   (setq target (- (point) (point-at-bol))))
@@ -185,6 +185,7 @@
 			(setq target 0))
 	       do (setq syn (syntax-after (- (point) 1))
 			sc (syntax-class syn)
+			;; XXX: this is bizarrely wrong if tabs get in
 			indent-point (+ (point-at-bol) (current-indentation)))
 	       ;; If at bol and any non-ws on line, use cur-indent.
 	       until (and (<= (point) indent-point)
@@ -192,11 +193,6 @@
 			  (re-search-forward "[^[:space:]]" (point-at-eol) t)
 			  (progn (backward-char) t)
 			  (setq target (- (point) (point-at-bol))))
-	       ;; If } after indentation, use cur-indent.
-	       until (and (< (point) orig-bol)
-			  (eq (char-before) ?})
-			  (= (point) (+ indent-point 1))
-			  (setq target (current-indentation)))
 	       ;; If at open delimiter, it's complicated:
 	       until (and (or (and (eq sc 4)
 				   (< (point) ignore-open-after))
@@ -208,29 +204,20 @@
 			  ;; Ignore other opens on this line.
 			  (setq ignore-open-after (point-at-bol))
 			  ;; Anything between it and eol but comments/space?
-			  ;; (This may not need to be so complicated.)
-			  (save-excursion
-			    (let ((found-nonspace
-				   (re-search-forward "[^[:space:]]"
-						      (point-at-eol) t)))
-			      (when found-nonspace
-				(while (forward-comment 1)))
-			      ;; Have we found something other than the start
-			      ;; of a new line or the end of the buffer?
-			      (if (and found-nonspace
-				       (< (point) (point-max))
-				       (< (current-indentation)
-					  (- (point) (point-at-bol))))
-				  ;; If so, indent to first nonspace.
-				  ;; (Which might be a comment.)
-				  (setq target
-					(progn (goto-char (- found-nonspace 1))
-					       (- (point) (point-at-bol)))
-					no-dedent t)
-				;; Otherwise, indent one level and continue.
-				(progn
-				  (incf adjust new-rust-indent-unit)
-				  nil)))))
+			  (let ((found-nonspace (new-rust-stuff-afterp)))
+			    (if found-nonspace
+			      (save-excursion
+				;; If so, indent to first nonspace.
+				;; (Which might be a comment.)
+				(setq target
+				      (progn (goto-char found-nonspace)
+					     (- (point) (point-at-bol)))
+				      ;; If it's a continuation, then so be it.
+				      no-dedent t))
+			      ;; Otherwise, indent one level and continue.
+			      (progn
+				(incf adjust new-rust-indent-unit)
+				nil))))
 	       ;; Otherwise, step back one thing.
 	       do (or
 		   ;; Skip one comment (but only one) or whitespace.
@@ -246,8 +233,15 @@
 		     ;; Note: we can't be inside a string here, because (see
 		     ;; above) it will always have nonspace after the
 		     ;; delimiter, for the backslash if nothing else.
-		     ((2 3 5 7) (backward-sexp))
+		     (5 (when (prog1 (and (eq (char-before) ?})
+					  (>= (point) orig-bol))
+				(backward-sexp))
+			  ;; Iff that was a } on the line we're indenting,
+			  ;; ignore other opens on the line that opened it.
+			  (setq ignore-open-after (point-at-bol))))
+		     ((2 3 7) (backward-sexp))
 		     (otherwise (backward-char)))))
+	      (message "ref=%d target=%d adjust=%d" (point) target adjust)
 	      (incf target adjust)
 	      ;; Dedent if our reference is a continuation.
 	      (unless (or no-dedent (new-rust-thing-startp (point)))
@@ -256,6 +250,26 @@
 	  (unless (new-rust-thing-startp (point))
 	    (incf target new-rust-indent-unit)))))
     (indent-line-to (or target 0))))
+
+
+;; Anything between `pt' (inclusive) and eol but comments/space?
+;; If so, return the point that non-whitespace starts.
+(defun new-rust-stuff-afterp (&optional pt)
+  (save-excursion
+    (when pt (goto-char pt))
+    (let ((found-nonspace
+	   (re-search-forward "[^[:space:]]"
+			      (point-at-eol) t)))
+      (when found-nonspace
+	(while (forward-comment 1))
+	;; Have we found something other than the start
+	;; of a new line or the end of the buffer?
+	(and (< (point) (point-max))
+	     (< (current-indentation)
+		(- (point) (point-at-bol)))
+	     ;; Need the beginning of the match, not the end.
+	     (- found-nonspace 1))))))
+
 
 ;; Does the line containing `pt' start a new thing, or does it need to
 ;; be indented as a continuation?
