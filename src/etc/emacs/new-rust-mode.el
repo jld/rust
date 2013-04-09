@@ -189,7 +189,8 @@
 			  (progn (backward-char) t)
 			  (setq target (- (point) (point-at-bol))))
 	       ;; If } after indentation, use cur-indent.
-	       until (and (eq (char-before) ?})
+	       until (and (< (point) orig-bol)
+			  (eq (char-before) ?})
 			  (= (point) (+ indent-point 1))
 			  (setq target (current-indentation)))
 	       ;; If at open delimiter, it's complicated:
