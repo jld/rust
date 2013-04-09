@@ -4,6 +4,7 @@
 (defvar new-rust-mode-hook nil)
 (defvar new-rust-indent-unit 4)
 (defvar new-rust-fill-column 100)
+(defvar new-rust-debug-indent nil)
 
 
 (defvar new-rust-syntax-table
@@ -164,21 +165,21 @@
 
 (defun new-rust-indent-line ()
   (interactive)
-  (let (target (orig-bol (point-at-bol)))
+  (let ((orig-bol (point-at-bol)) target)
     (when (> (point-at-bol) (point-min))
       (save-excursion
 	(forward-to-indentation 0)
- 	(case (char-after)
-	  ((?\) ?\])
-	   ;; Indent to column of opening paren.
-	   (forward-char)
-	   (backward-sexp)
-	   (setq target (- (point) (point-at-bol))))
-	  (?}
-	   (forward-char)))
+	;; Handle a leading close delimiter specially.
+	;; (Only the first, for least surprise.)
+	(when (eq (syntax-class (syntax-after (point))) 5)
+	  (forward-char)
+	  (backward-sexp)
+	  ;; If it was expression-like, indent to match the open paren.
+	  (when (new-rust-stuff-afterp (+ (point) 1))
+	    (setq target (- (point) (point-at-bol)))))
 	(unless target
 	  (save-excursion
-	    (let ((adjust 0) (ignore-open-after (point-max))
+	    (let ((adjust 0) (ignore-open-after (point-at-bol))
 		  syn sc indent-point no-dedent)
 	      (loop
 	       until (and (<= (point) (point-min))
@@ -233,15 +234,10 @@
 		     ;; Note: we can't be inside a string here, because (see
 		     ;; above) it will always have nonspace after the
 		     ;; delimiter, for the backslash if nothing else.
-		     (5 (when (prog1 (and (eq (char-before) ?})
-					  (>= (point) orig-bol))
-				(backward-sexp))
-			  ;; Iff that was a } on the line we're indenting,
-			  ;; ignore other opens on the line that opened it.
-			  (setq ignore-open-after (point-at-bol))))
-		     ((2 3 7) (backward-sexp))
+		     ((2 3 5 7) (backward-sexp))
 		     (otherwise (backward-char)))))
-	      (message "ref=%d target=%d adjust=%d" (point) target adjust)
+	      (when new-rust-debug-indent
+		(message "ref=%d target=%d adjust=%d" (point) target adjust))
 	      (incf target adjust)
 	      ;; Dedent if our reference is a continuation.
 	      (unless (or no-dedent (new-rust-thing-startp (point)))
@@ -250,7 +246,6 @@
 	  (unless (new-rust-thing-startp (point))
 	    (incf target new-rust-indent-unit)))))
     (indent-line-to (or target 0))))
-
 
 ;; Anything between `pt' (inclusive) and eol but comments/space?
 ;; If so, return the point that non-whitespace starts.
@@ -261,15 +256,18 @@
 	   (re-search-forward "[^[:space:]]"
 			      (point-at-eol) t)))
       (when found-nonspace
+	;; Need the beginning of the match, not the end.
+	(backward-char)
+	(setq found-nonspace (point))
+	;; Note that skipping comments may end on a different line.
+	;; This is intentional.
 	(while (forward-comment 1))
 	;; Have we found something other than the start
 	;; of a new line or the end of the buffer?
 	(and (< (point) (point-max))
 	     (< (current-indentation)
 		(- (point) (point-at-bol)))
-	     ;; Need the beginning of the match, not the end.
-	     (- found-nonspace 1))))))
-
+	     found-nonspace)))))
 
 ;; Does the line containing `pt' start a new thing, or does it need to
 ;; be indented as a continuation?
