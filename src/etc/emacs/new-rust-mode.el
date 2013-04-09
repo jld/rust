@@ -5,6 +5,7 @@
 (defvar new-rust-indent-unit 4)
 (defvar new-rust-fill-column 100)
 (defvar new-rust-debug-indent nil)
+(defvar new-rust-electric-flag t)
 
 
 (defvar new-rust-syntax-table
@@ -297,6 +298,13 @@
 	  (otherwise nil)))))))
 
 
+;; Electrically insert a syntactically important character.
+(defun new-rust-electric-insert (arg)
+  (interactive "*P")
+  (self-insert-command (prefix-numeric-value arg))
+  (when (and new-rust-electric-flag (not arg))
+    (new-rust-indent-line)))
+
 ;;;###autoload
 (define-derived-mode new-rust-mode prog-mode "New Rust"
   "Major mode for editing source code in the Rust language."
@@ -307,6 +315,9 @@
 	 nil nil nil nil
 	 (font-lock-syntactic-keywords
 	  . ,new-rust-font-lock-syntactics)))
+
+  (dolist (ch '(?( ?) ?[ ?] ?{ ?} ?\; ?,))
+    (local-set-key (vector ch) 'new-rust-electric-insert))
 
   (set (make-local-variable 'fill-paragraph-function)
        'new-rust-fill-paragraph)
