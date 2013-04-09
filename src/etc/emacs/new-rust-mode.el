@@ -178,7 +178,8 @@
 	   (forward-char)))
 	(unless target
 	  (save-excursion
-	    (let ((adjust 0) syn sc indent-point no-dedent)
+	    (let ((adjust 0) (ignore-open-after (point-max))
+		  syn sc indent-point no-dedent)
 	      (loop
 	       until (and (<= (point) (point-min))
 			(setq target 0))
@@ -197,12 +198,15 @@
 			  (= (point) (+ indent-point 1))
 			  (setq target (current-indentation)))
 	       ;; If at open delimiter, it's complicated:
-	       until (and (or (eq sc 4)
+	       until (and (or (and (eq sc 4)
+				   (< (point) ignore-open-after))
 			      ;; Treat beginning of multiline string as open.
 			      (and (eq sc 7)
 				   (eq (syntax-class
 					(syntax-after
 					 (- (point-at-eol) 1))) 9)))
+			  ;; Ignore other opens on this line.
+			  (setq ignore-open-after (point-at-bol))
 			  ;; Anything between it and eol but comments/space?
 			  ;; (This may not need to be so complicated.)
 			  (save-excursion
@@ -246,14 +250,16 @@
 		     (otherwise (backward-char)))))
 	      (incf target adjust)
 	      ;; Dedent if our reference is a continuation.
-	      (unless (or no-dedent (new-rust-proper-ending (point)))
+	      (unless (or no-dedent (new-rust-thing-startp (point)))
 		(decf target new-rust-indent-unit))))
 	  ;; Indent if we're a continuation.
-	  (unless (new-rust-proper-ending (point))
+	  (unless (new-rust-thing-startp (point))
 	    (incf target new-rust-indent-unit)))))
     (indent-line-to (or target 0))))
 
-(defun new-rust-proper-ending (&optional pt)
+;; Does the line containing `pt' start a new thing, or does it need to
+;; be indented as a continuation?
+(defun new-rust-thing-startp (&optional pt)
   (save-excursion
     (when pt (goto-char pt))
     (forward-to-indentation 0)
@@ -263,8 +269,13 @@
        (while (forward-comment -1))
        (or
 	(<= (point) (point-min))
-	;; FIXME: ?\] only when in #[foo]
-	(memq (char-before) '(?, ?\; ?} ?\] ?\( ?\[ ?{ ?\\ ?|)))))))
+	(case (char-before)
+	  ((?, ?\; ?} ?\( ?\[ ?{ ?\\) t)
+	  (?\] ;; Is this an #[attribute]?
+	   (backward-sexp)
+	   (while (forward-comment -1))
+	   (eq (char-before) ?#))
+	  (otherwise nil)))))))
 
 
 ;;;###autoload
