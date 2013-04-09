@@ -162,6 +162,8 @@
 ;; So this function, which attempts to indent a line by reference to
 ;; previous lines, walks backwards, stepping over sexps, until it
 ;; finds a line it can use as a reference for the current one.
+;;
+;; FIXME: This is not very helpful if run inside a block comment.
 
 (defun new-rust-indent-line ()
   (interactive)
@@ -186,7 +188,7 @@
 			(setq target 0))
 	       do (setq syn (syntax-after (- (point) 1))
 			sc (syntax-class syn)
-			;; XXX: this is bizarrely wrong if tabs get in
+			;; XXX this is confusingly wrong if tabs get in
 			indent-point (+ (point-at-bol) (current-indentation)))
 	       ;; If at bol and any non-ws on line, use cur-indent.
 	       until (and (<= (point) indent-point)
@@ -245,7 +247,12 @@
 	  ;; Indent if we're a continuation.
 	  (unless (new-rust-thing-startp (point))
 	    (incf target new-rust-indent-unit)))))
-    (indent-line-to (or target 0))))
+    ;; At long last, actually indent.  But, if we were after the indentation,
+    ;; don't move the cursor relative to the text.
+    (let ((init-col (- (point) (point-at-bol) (current-indentation))))
+      (indent-line-to (or target 0))
+      (when (> init-col 0)
+	(goto-char (+ (point-at-bol) (current-indentation) init-col))))))
 
 ;; Anything between `pt' (inclusive) and eol but comments/space?
 ;; If so, return the point that non-whitespace starts.
