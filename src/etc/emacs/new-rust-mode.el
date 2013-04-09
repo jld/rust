@@ -263,7 +263,8 @@
        (while (forward-comment -1))
        (or
 	(<= (point) (point-min))
-	(memq (char-before) '(?, ?\; ?} ?\( ?\[ ?{ ?\\)))))))
+	;; FIXME: ?\] only when in #[foo]
+	(memq (char-before) '(?, ?\; ?} ?\] ?\( ?\[ ?{ ?\\ ?|)))))))
 
 
 ;;;###autoload
