@@ -490,7 +490,7 @@ pub fn vec_types(bcx: block, vec_ty: ty::t) -> VecTypes {
               llunit_size: llunit_size}
 }
 
-pub fn elements_required(bcx: block, content_expr: @ast::expr) -> uint {
+pub fn elements_required(bcx: block, content_expr: @ast::expr) -> u64 {
     //! Figure out the number of elements we need to store this content
 
     match content_expr.node {

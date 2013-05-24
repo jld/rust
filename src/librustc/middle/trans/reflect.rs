@@ -308,8 +308,8 @@ pub impl Reflector {
                 + self.c_size_and_align(t);
             do self.bracketed(~"enum", enum_args) |this| {
                 for variants.eachi |i, v| {
-                    let variant_args = ~[this.c_uint(i),
-                                         this.c_int(v.disr_val,
+                    let variant_args = ~[this.c_uint(i as u64),
+                                         this.c_int(v.disr_val),
                                          this.c_uint(v.args.len() as u64),
                                          this.c_slice(ccx.sess.str_of(v.name))];
                     do this.bracketed(~"enum_variant", variant_args) |this| {
@@ -318,7 +318,7 @@ pub impl Reflector {
                             let null = C_null(llptrty);
                             let offset = p2i(ccx, adt::trans_field_ptr(bcx, repr, null,
                                                                        v.disr_val, j));
-                            let field_args = ~[this.c_uint(j),
+                            let field_args = ~[this.c_uint(j as u64),
                                                offset,
                                                this.c_tydesc(*a)];
                             this.visit(~"enum_variant_field", field_args);

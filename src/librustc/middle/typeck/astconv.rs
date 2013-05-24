@@ -461,10 +461,10 @@ pub fn ast_ty_to_ty<AC:AstConv, RS:region_scope + Copy + 'static>(
             match *r {
               const_eval::const_int(i) =>
                 ty::mk_evec(tcx, ast_mt_to_mt(this, rscope, a_mt),
-                            ty::vstore_fixed(i as uint)),
+                            ty::vstore_fixed(i as u64)),
               const_eval::const_uint(i) =>
                 ty::mk_evec(tcx, ast_mt_to_mt(this, rscope, a_mt),
-                            ty::vstore_fixed(i as uint)),
+                            ty::vstore_fixed(i)),
               _ => {
                 tcx.sess.span_fatal(
                     ast_ty.span, "expected constant expr for vector length");
