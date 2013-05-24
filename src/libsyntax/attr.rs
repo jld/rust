@@ -335,3 +335,69 @@ pub fn require_unique_names(diagnostic: @span_handler,
         }
     }
 }
+
+
+#[deriving(Eq)]
+pub enum ReprAttr {
+    ReprAny,
+    ReprInt(IntType)
+}
+
+#[deriving(Eq)]
+pub enum IntType {
+    SignedInt(ast::int_ty),
+    UnsignedInt(ast::uint_ty)
+}
+
+pub fn find_repr_attr(diagnostic: @span_handler, attrs: &[ast::attribute]) -> ReprAttr {
+    let mut acc = ReprAny;
+    for attrs.each |attr| {
+        match attr.node.value.node {
+            ast::meta_list(@~"repr", ref items) => {
+                for items.each |item| {
+                    match item.node {
+                        ast::meta_word(word) => {
+                            match int_type_of_word(*word) {
+                                Some(it) => {
+                                    let hint = ReprInt(it);
+                                    if acc == ReprAny {
+                                        acc = hint;
+                                    } else if acc != hint {
+                                        diagnostic.span_warn(item.span,
+                                                             "conflicting representation hint \
+                                                              ignored")
+                                    }
+                                }
+                                // Not a known int type:
+                                None => diagnostic.span_warn(item.span,
+                                                             "unrecognized representation hint")
+                            }
+                        }
+                        // Not a word:
+                        _ => diagnostic.span_warn(item.span, "unrecognized representation hint")
+                    }
+                }
+            }
+            // Not a "repr" hint: ignore.
+            _ => { }
+        }
+    }
+    return acc;
+}
+
+fn int_type_of_word(s: &str) -> Option<IntType> {
+    match s {
+        "i8" => Some(SignedInt(ast::ty_i8)),
+        "u8" => Some(UnsignedInt(ast::ty_u8)),
+        "i16" => Some(SignedInt(ast::ty_i16)),
+        "u16" => Some(UnsignedInt(ast::ty_u16)),
+        "i32" => Some(SignedInt(ast::ty_i32)),
+        "u32" => Some(UnsignedInt(ast::ty_u32)),
+        "i64" => Some(SignedInt(ast::ty_i64)),
+        "u64" => Some(UnsignedInt(ast::ty_u64)),
+        "char" => Some(SignedInt(ast::ty_char)),
+        "int" => Some(SignedInt(ast::ty_i)),
+        "uint" => Some(UnsignedInt(ast::ty_u)),
+        _ => None
+    }
+}
