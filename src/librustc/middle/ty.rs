@@ -4027,25 +4027,37 @@ pub fn lookup_trait_def(cx: ctxt, did: ast::def_id) -> @ty::TraitDef {
     }
 }
 
-/// Determine whether an item is annotated with an attribute
-pub fn has_attr(tcx: ctxt, did: def_id, attr: &str) -> bool {
+/// Iterate over meta_items of a definition.
+pub fn each_attr(tcx: ctxt, did: def_id, f: &fn(@ast::meta_item) -> bool) -> bool {
     if is_local(did) {
         match tcx.items.find(&did.node) {
             Some(
                 &ast_map::node_item(@ast::item {
                     attrs: ref attrs,
                     _
-                }, _)) => attr::attrs_contains_name(*attrs, attr),
+                }, _)) => attrs.each(|attr| f(attr.node.value)),
             _ => tcx.sess.bug(fmt!("has_attr: %? is not an item",
                                    did))
         }
     } else {
-        let mut ret = false;
+        let mut ret = true;
         do csearch::get_item_attrs(tcx.cstore, did) |meta_items| {
-            ret = attr::contains_name(meta_items, attr);
+            ret = meta_items.each(|ptrptr| f(*ptrptr));
         }
         ret
     }
+}
+
+/// Determine whether an item is annotated with an attribute
+pub fn has_attr(tcx: ctxt, did: def_id, attr: &str) -> bool {
+    let mut found = false;
+    for each_attr(tcx, did) |item| {
+        if attr == *attr::get_meta_item_name(item) {
+            found = true;
+            break;
+        }
+    }
+    return found;
 }
 
 /// Determine whether an item is annotated with `#[packed]`

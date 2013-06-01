@@ -106,7 +106,7 @@ macro_rules! move_it (
     { $x:expr } => ( unsafe { let y = *ptr::to_unsafe_ptr(&($x)); y } )
 )
 
-#[deriving(Eq)]
+#[deriving(Eq)] #[repr(int)]
 enum State {
     Empty,
     Full,

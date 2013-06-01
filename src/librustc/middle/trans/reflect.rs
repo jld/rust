@@ -26,7 +26,7 @@ use middle::ty;
 use util::ppaux::ty_to_str;
 
 use core::libc::c_uint;
-use core::option::None;
+use core::option::{Some,None};
 use core::vec;
 use syntax::ast::def_id;
 use syntax::ast;
@@ -301,7 +301,7 @@ impl Reflector {
                 };
                 let bcx = top_scope_block(fcx, None);
                 let arg = BitCast(bcx, arg, llptrty);
-                let ret = adt::trans_get_discr(bcx, repr, arg);
+                let ret = adt::trans_get_discr(bcx, repr, arg, Some(ccx.int_type));
                 Store(bcx, ret, fcx.llretptr.get());
                 cleanup_and_Br(bcx, bcx, fcx.llreturn);
                 finish_fn(fcx, bcx.llbb);
