@@ -922,6 +922,7 @@ fn encode_info_for_item(ecx: &EncodeContext,
         encode_type_param_bounds(ebml_w, ecx, &generics.ty_params);
         encode_type(ecx, ebml_w, node_id_to_type(tcx, item.id));
         encode_name(ecx, ebml_w, item.ident);
+        encode_attributes(ebml_w, item.attrs);
         for (*enum_definition).variants.iter().advance |v| {
             encode_variant_id(ebml_w, local_def(v.node.id));
         }
