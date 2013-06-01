@@ -102,7 +102,7 @@ use util::replace;
 
 static SPIN_COUNT: uint = 0;
 
-#[deriving(Eq)]
+#[deriving(Eq)] #[repr(int)]
 enum State {
     Empty,
     Full,

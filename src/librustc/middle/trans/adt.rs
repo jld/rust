@@ -58,15 +58,19 @@ use middle::trans::type_of;
 use middle::ty;
 use middle::ty::Disr;
 use syntax::ast;
+use syntax::attr;
+use syntax::attr::IntType;
 use util::ppaux::ty_to_str;
 
 use middle::trans::type_::Type;
+
+type Hint = attr::ReprAttr;
 
 
 /// Representations.
 pub enum Repr {
     /// C-like enums; basically an int.
-    CEnum(Disr, Disr), // discriminant range
+    CEnum(IntType, Disr, Disr), // discriminant range
     /**
      * Single-case variants, and structs/tuples/records.
      *
@@ -79,7 +83,7 @@ pub enum Repr {
      * General-case enums: for each case there is a struct, and they
      * all start with a field for the discriminant.
      */
-    General(~[Struct]),
+    General(IntType, ~[Struct]),
     /**
      * Two cases distinguished by a nullable pointer: the case with discriminant
      * `nndiscr` is represented by the struct `nonnull`, where the `ptrfield`th
@@ -142,6 +146,8 @@ fn represent_type_uncached(cx: &mut CrateContext, t: ty::t) -> Repr {
             return Univariant(mk_struct(cx, ftys, packed), dtor)
         }
         ty::ty_enum(def_id, ref substs) => {
+            // consult has_attr, and possibly do a thing
+
             struct Case { discr: Disr, tys: ~[ty::t] };
             impl Case {
                 fn is_zerolen(&self, cx: &mut CrateContext) -> bool {
@@ -167,7 +173,9 @@ fn represent_type_uncached(cx: &mut CrateContext, t: ty::t) -> Repr {
             if cases.iter().all(|c| c.tys.len() == 0) {
                 // All bodies empty -> intlike
                 let discrs = cases.map(|c| c.discr);
-                return CEnum(*discrs.iter().min().unwrap(), *discrs.iter().max().unwrap());
+                return mk_cenum(cx, hint_of_def(cx, def_id),
+                                *discrs.iter().min().unwrap(),
+                                *discrs.iter().max().unwrap());
             }
 
             if cases.len() == 1 {
@@ -206,8 +214,9 @@ fn represent_type_uncached(cx: &mut CrateContext, t: ty::t) -> Repr {
             }
 
             // The general case.
-            let discr = ~[ty::mk_int()];
-            return General(cases.map(|c| mk_struct(cx, discr + c.tys, false)))
+            let ity = range_to_inttype(cx, hint_of_def(cx, def_id), 0, (cases.len() - 1) as i64);
+            let discr = ~[ty_of_inttype(ity)];
+            return General(ity, cases.map(|c| mk_struct(cx, discr + c.tys, false)))
         }
         _ => cx.sess.bug("adt::represent_type called on non-ADT type")
     }
@@ -224,6 +233,65 @@ fn mk_struct(cx: &mut CrateContext, tys: &[ty::t], packed: bool) -> Struct {
     }
 }
 
+fn mk_cenum(cx: @CrateContext, hint: Hint, lo: i64, hi: i64) -> Repr {
+    CEnum(range_to_inttype(cx, hint, lo, hi), lo, hi)
+}
+
+fn range_to_inttype(cx: @CrateContext, hint: Hint, lo: i64, hi: i64) -> IntType {
+    match hint {
+        attr::ReprInt(span, ity) => {
+            if !(in_inttype(cx, ity, lo) && in_inttype(cx, ity, hi)) {
+                cx.sess.span_err(span, "representation hint insufficient for discriminant range")
+            }
+            return ity;
+        }
+        attr::ReprAny => {
+            static attempts: &'static[IntType] = &[
+                attr::SignedInt(ast::ty_i8), attr::UnsignedInt(ast::ty_u8),
+                attr::SignedInt(ast::ty_i16), attr::UnsignedInt(ast::ty_u16),
+                attr::SignedInt(ast::ty_i32), attr::UnsignedInt(ast::ty_u32)];
+            let mut best = attr::SignedInt(ast::ty_i64);
+            for attempts.each |&ity| {
+                if in_inttype(cx, ity, lo) && in_inttype(cx, ity, hi) {
+                    best = ity;
+                    break;
+                }
+            }
+            return best;
+        }
+    }
+}
+
+fn ll_inttype(cx: @CrateContext, ity: IntType) -> TypeRef {
+    match ity {
+        attr::SignedInt(t) => T_int_ty(cx, t),
+        attr::UnsignedInt(t) => T_uint_ty(cx, t)
+    }
+}
+
+fn in_inttype(cx: @CrateContext, ity: IntType, n: i64) -> bool {
+    let llc = C_integral(ll_inttype(cx, ity), n as u64, True /*???*/);
+    n == match ity {
+        attr::SignedInt(_) => const_to_int(llc) as i64,
+        attr::UnsignedInt(_) => const_to_uint(llc) as i64
+    }
+}
+
+fn ty_of_inttype(ity: IntType) -> ty::t {
+    match ity {
+        attr::SignedInt(t) => ty::mk_mach_int(t),
+        attr::UnsignedInt(t) => ty::mk_mach_uint(t)
+    }
+}
+
+fn hint_of_def(cx: @CrateContext, did: ast::def_id) -> Hint {
+    let mut hint = attr::ReprAny;
+    for ty::each_attr(cx.tcx, did) |meta| {
+        hint = attr::find_repr_attr(cx.sess.diagnostic(), meta, hint)
+    }
+    return hint;
+}
+
 /**
  * Returns the fields of a struct for the given representation.
  * All nominal types are LLVM structs, in order to be able to use
@@ -238,10 +306,10 @@ pub fn sizing_fields_of(cx: &mut CrateContext, r: &Repr) -> ~[Type] {
 }
 fn generic_fields_of(cx: &mut CrateContext, r: &Repr, sizing: bool) -> ~[Type] {
     match *r {
-        CEnum(*) => ~[Type::enum_discrim(cx)],
+        CEnum(ity, _, _) => ~[Type::enum_discrim(cx)],
         Univariant(ref st, _dtor) => struct_llfields(cx, st, sizing),
         NullablePointer{ nonnull: ref st, _ } => struct_llfields(cx, st, sizing),
-        General(ref sts) => {
+        General(_ity, ref sts) => {
             // To get "the" type of a general enum, we pick the case
             // with the largest alignment (so it will always align
             // correctly in containing structures) and pad it out.
@@ -287,7 +355,7 @@ pub fn trans_switch(bcx: block, r: &Repr, scrutinee: ValueRef)
     -> (_match::branch_kind, Option<ValueRef>) {
     match *r {
         CEnum(*) | General(*) => {
-            (_match::switch, Some(trans_get_discr(bcx, r, scrutinee)))
+            (_match::switch, Some(trans_get_discr(bcx, r, scrutinee, None)))
         }
         NullablePointer{ nonnull: ref nonnull, nndiscr, ptrfield, _ } => {
             (_match::switch, Some(nullable_bitdiscr(bcx, nonnull, nndiscr, ptrfield, scrutinee)))
@@ -301,17 +369,31 @@ pub fn trans_switch(bcx: block, r: &Repr, scrutinee: ValueRef)
 
 
 /// Obtain the actual discriminant of a value.
-pub fn trans_get_discr(bcx: block, r: &Repr, scrutinee: ValueRef)
+pub fn trans_get_discr(bcx: block, r: &Repr, scrutinee: ValueRef, cast_to: Option<TypeRef>)
     -> ValueRef {
+    let signed;
+    let val;
     match *r {
-        CEnum(min, max) => load_discr(bcx, scrutinee, min, max),
-        Univariant(*) => C_u8(0),
-        General(ref cases) => load_discr(bcx, scrutinee, 0,
-                                         (cases.len() - 1) as Disr),
-        NullablePointer{ nonnull: ref nonnull, nndiscr, ptrfield, _ } => {
-            ZExt(bcx, nullable_bitdiscr(bcx, nonnull, nndiscr, ptrfield, scrutinee),
-                 Type::enum_discrim(bcx.ccx()))
+       CEnum(ity, min, max) => { 
+            val = load_discr(bcx, scrutinee, min, max);
+            signed = ity.is_signed();
         }
+        General(ity, ref cases) => {
+            val = load_discr(bcx, scrutinee, 0, (cases.len() - 1) as Disr);
+            signed = ity.is_signed();
+        }
+        Univariant(*) => {
+            val = C_u8(0);
+            signed = false;
+        }
+        NullablePointer{ nonnull: ref nonnull, nndiscr, ptrfield, _ } => {
+            val = nullable_bitdiscr(bcx, nonnull, nndiscr, ptrfield, scrutinee);
+            signed = false;
+        }
+    }
+    match cast_to {
+        None => val,
+        Some(llty) => if signed { SExt(bcx, val, llty) } else { ZExt(bcx, val, llty) }
     }
 }
 
@@ -350,14 +432,16 @@ fn load_discr(bcx: block, scrutinee: ValueRef, min: Disr, max: Disr)
  */
 pub fn trans_case(bcx: block, r: &Repr, discr: Disr) -> _match::opt_result {
     match *r {
-        CEnum(*) => {
-            _match::single_result(rslt(bcx, C_int(bcx.ccx(), discr /*bad*/as int)))
+        CEnum(ity, _, _) => {
+            _match::single_result(rslt(bcx, C_integral(ll_inttype(bcx.ccx(), ity), 
+                                                       discr as u64, True)))
+        }
+        General(ity, _) => {
+            _match::single_result(rslt(bcx, C_integral(ll_inttype(bcx.ccx(), ity), 
+                                                       discr as u64, True)))
         }
         Univariant(*) => {
             bcx.ccx().sess.bug("no cases for univariants or structs")
-        }
-        General(*) => {
-            _match::single_result(rslt(bcx, C_int(bcx.ccx(), discr /*bad*/as int)))
         }
         NullablePointer{ _ } => {
             assert!(discr == 0 || discr == 1);
@@ -373,9 +457,14 @@ pub fn trans_case(bcx: block, r: &Repr, discr: Disr) -> _match::opt_result {
  */
 pub fn trans_start_init(bcx: block, r: &Repr, val: ValueRef, discr: Disr) {
     match *r {
-        CEnum(min, max) => {
+        CEnum(ity, min, max) => {
             assert!(min <= discr && discr <= max);
-            Store(bcx, C_int(bcx.ccx(), discr /*bad*/as int), GEPi(bcx, val, [0, 0]))
+            Store(bcx, C_integral(ll_inttype(bcx.ccx(), ity), discr as u64, True), 
+                  GEPi(bcx, val, [0, 0]))
+        }
+        General(ity, _) => {
+            Store(bcx, C_integral(ll_inttype(bcx.ccx(), ity), discr as u64, True),
+                  GEPi(bcx, val, [0, 0]))
         }
         Univariant(ref st, true) => {
             assert_eq!(discr, 0);
@@ -384,9 +473,6 @@ pub fn trans_start_init(bcx: block, r: &Repr, val: ValueRef, discr: Disr) {
         }
         Univariant(*) => {
             assert_eq!(discr, 0);
-        }
-        General(*) => {
-            Store(bcx, C_int(bcx.ccx(), discr /*bad*/as int), GEPi(bcx, val, [0, 0]))
         }
         NullablePointer{ nonnull: ref nonnull, nndiscr, ptrfield, _ } => {
             if discr != nndiscr {
@@ -409,7 +495,7 @@ pub fn num_args(r: &Repr, discr: Disr) -> uint {
             assert_eq!(discr, 0);
             st.fields.len() - (if dtor { 1 } else { 0 })
         }
-        General(ref cases) => cases[discr as uint].fields.len() - 1,
+        General(_, ref cases) => cases[discr as uint].fields.len() - 1,
         NullablePointer{ nonnull: ref nonnull, nndiscr, nullfields: ref nullfields, _ } => {
             if discr == nndiscr { nonnull.fields.len() } else { nullfields.len() }
         }
@@ -430,7 +516,7 @@ pub fn trans_field_ptr(bcx: block, r: &Repr, val: ValueRef, discr: Disr,
             assert_eq!(discr, 0);
             struct_field_ptr(bcx, st, val, ix, false)
         }
-        General(ref cases) => {
+        General(_, ref cases) => {
             struct_field_ptr(bcx, &cases[discr as uint], val, ix + 1, true)
         }
         NullablePointer{ nonnull: ref nonnull, nullfields: ref nullfields, nndiscr, _ } => {
@@ -498,22 +584,21 @@ pub fn trans_drop_flag_ptr(bcx: block, r: &Repr, val: ValueRef) -> ValueRef {
 pub fn trans_const(ccx: &mut CrateContext, r: &Repr, discr: Disr,
                    vals: &[ValueRef]) -> ValueRef {
     match *r {
-        CEnum(min, max) => {
+        CEnum(ity, min, max) => {
             assert_eq!(vals.len(), 0);
             assert!(min <= discr && discr <= max);
-            C_int(ccx, discr /*bad*/as int)
+            C_integral(ll_inttype(ccx, ity), discr as u64, True)
         }
-        Univariant(ref st, _dro) => {
-            assert_eq!(discr, 0);
-            C_struct(build_const_struct(ccx, st, vals))
-        }
-        General(ref cases) => {
+        General(ity, ref cases) => {
             let case = &cases[discr as uint];
             let max_sz = cases.iter().transform(|x| x.size).max().unwrap();
-            let discr_ty = C_int(ccx, discr /*bad*/as int);
-            let contents = build_const_struct(ccx, case,
-                                              ~[discr_ty] + vals);
+            let lldiscr = C_integral(ll_inttype(ccx, ity), discr as u64, True);
+            let contents = build_const_struct(ccx, case, ~[discr_ty] + vals);
             C_struct(contents + &[padding(max_sz - case.size)])
+        }
+        Univariant(ref st, _dro) => {
+            assert!(discr == 0);
+            C_struct(build_const_struct(ccx, st, vals))
         }
         NullablePointer{ nonnull: ref nonnull, nndiscr, ptrfield, _ } => {
             if discr == nndiscr {
@@ -584,9 +669,19 @@ fn roundup(x: u64, a: u64) -> u64 { ((x + (a - 1)) / a) * a }
 pub fn const_get_discrim(ccx: &mut CrateContext, r: &Repr, val: ValueRef)
     -> Disr {
     match *r {
-        CEnum(*) => const_to_int(val) as Disr,
+        CEnum(ity, _, _) => {
+            match ity {
+                attr::SignedInt(*) => const_to_int(val) as Disr,
+                attr::UnsignedInt(*) => const_to_uint(val) as Disr
+            }
+        }
+        General(ity, _) => {
+            match ity {
+                attr::SignedInt(*) => const_to_int(const_get_elt(ccx, val, [0])) as Disr,
+                attr::UnsignedInt(*) => const_to_uint(const_get_elt(ccx, val, [0])) as Disr
+            }
+        }
         Univariant(*) => 0,
-        General(*) => const_to_int(const_get_elt(ccx, val, [0])) as Disr,
         NullablePointer{ nndiscr, ptrfield, _ } => {
             if is_null(const_struct_field(ccx, val, ptrfield)) { 1 - nndiscr } else { nndiscr }
         }

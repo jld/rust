@@ -13,7 +13,7 @@
 use extra;
 
 use ast;
-use codemap::{spanned, dummy_spanned};
+use codemap::{span, spanned, dummy_spanned};
 use attr;
 use codemap::BytePos;
 use diagnostic::span_handler;
@@ -340,7 +340,7 @@ pub fn require_unique_names(diagnostic: @span_handler,
 #[deriving(Eq)]
 pub enum ReprAttr {
     ReprAny,
-    ReprInt(IntType)
+    ReprInt(span, IntType)
 }
 
 #[deriving(Eq)]
@@ -349,38 +349,47 @@ pub enum IntType {
     UnsignedInt(ast::uint_ty)
 }
 
-pub fn find_repr_attr(diagnostic: @span_handler, attrs: &[ast::attribute]) -> ReprAttr {
-    let mut acc = ReprAny;
-    for attrs.each |attr| {
-        match attr.node.value.node {
-            ast::meta_list(@~"repr", ref items) => {
-                for items.each |item| {
-                    match item.node {
-                        ast::meta_word(word) => {
-                            match int_type_of_word(*word) {
-                                Some(it) => {
-                                    let hint = ReprInt(it);
-                                    if acc == ReprAny {
-                                        acc = hint;
-                                    } else if acc != hint {
-                                        diagnostic.span_warn(item.span,
-                                                             "conflicting representation hint \
-                                                              ignored")
-                                    }
+impl IntType {
+    #[inline]
+    fn is_signed(self) -> bool {
+        match self {
+            SignedInt(*) => true,
+            UnsignedInt(*) => false
+        }
+    }
+}
+
+pub fn find_repr_attr(diagnostic: @span_handler, attr: @ast::meta_item, acc: ReprAttr)
+    -> ReprAttr {
+    let mut acc = acc;
+    match attr.node {
+        ast::meta_list(@~"repr", ref items) => {
+            for items.each |item| {
+                match item.node {
+                    ast::meta_word(word) => {
+                        match int_type_of_word(*word) {
+                            Some(ity) => {
+                                let hint = ReprInt(item.span, ity);
+                                if acc == ReprAny {
+                                    acc = hint;
+                                } else if acc != hint {
+                                    diagnostic.span_warn(item.span,
+                                                         "conflicting representation hint \
+                                                          ignored")
                                 }
-                                // Not a known int type:
-                                None => diagnostic.span_warn(item.span,
-                                                             "unrecognized representation hint")
                             }
+                            // Not a known int type:
+                            None => diagnostic.span_warn(item.span,
+                                                         "unrecognized representation hint")
                         }
-                        // Not a word:
-                        _ => diagnostic.span_warn(item.span, "unrecognized representation hint")
                     }
+                    // Not a word:
+                    _ => diagnostic.span_warn(item.span, "unrecognized representation hint")
                 }
             }
-            // Not a "repr" hint: ignore.
-            _ => { }
         }
+        // Not a "repr" hint: ignore.
+        _ => { }
     }
     return acc;
 }
