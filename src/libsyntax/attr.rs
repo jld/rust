@@ -349,13 +349,15 @@ pub fn require_unique_names(diagnostic: @span_handler,
 #[deriving(Eq)]
 pub enum ReprAttr {
     ReprAny,
-    ReprInt(span, IntType)
+    ReprInt(span, IntType),
+    ReprExtern
 }
 
 impl ReprAttr {
     fn is_ffi_safe(&self) -> bool {
         match *self {
             ReprAny => false,
+            ReprExtern => true,
             ReprInt(_sp, ity) => ity.is_ffi_safe()
         }
     }
@@ -394,20 +396,28 @@ pub fn find_repr_attr(diagnostic: @span_handler, attr: @ast::meta_item, acc: Rep
             for items.each |item| {
                 match item.node {
                     ast::meta_word(word) => {
-                        match int_type_of_word(*word) {
-                            Some(ity) => {
-                                let hint = ReprInt(item.span, ity);
-                                if acc == ReprAny {
-                                    acc = hint;
-                                } else if acc != hint {
+                        let word: &str = *word;
+                        let hint = match word {
+                            // Can't use "extern" because it's not a lexical identifier.
+                            "C" => ReprExtern,
+                            _ => match int_type_of_word(word) {
+                                Some(ity) => ReprInt(item.span, ity),
+                                None => {
+                                    // Not a word we recognize
                                     diagnostic.span_warn(item.span,
-                                                         "conflicting representation hint \
-                                                          ignored")
+                                                         "unrecognized representation hint");
+                                    ReprAny
                                 }
                             }
-                            // Not a known int type:
-                            None => diagnostic.span_warn(item.span,
-                                                         "unrecognized representation hint")
+                        };
+                        if hint != ReprAny {
+                            if acc == ReprAny {
+                                acc = hint;
+                            } else if acc != hint {
+                                diagnostic.span_warn(item.span,
+                                                     "conflicting representation hint \
+                                                      ignored")
+                            }
                         }
                     }
                     // Not a word:
