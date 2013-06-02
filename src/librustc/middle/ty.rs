@@ -655,7 +655,7 @@ pub struct ParamBounds {
 
 pub type BuiltinBounds = EnumSet<BuiltinBound>;
 
-#[deriving(Eq, IterBytes)]
+#[deriving(Eq, IterBytes)] #[repr(uint)] // NOTE can reduce size to u8 after snapshot
 pub enum BuiltinBound {
     BoundCopy,
     BoundStatic,
