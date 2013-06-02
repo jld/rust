@@ -144,6 +144,7 @@ pub static Vector: TypeKind    = 13;
 pub static Metadata: TypeKind  = 14;
 pub static X86_MMX: TypeKind   = 15;
 
+#[repr(C)]
 pub enum AtomicBinOp {
     Xchg = 0,
     Add  = 1,
@@ -158,6 +159,7 @@ pub enum AtomicBinOp {
     UMin = 10,
 }
 
+#[repr(C)]
 pub enum AtomicOrdering {
     NotAtomic = 0,
     Unordered = 1,

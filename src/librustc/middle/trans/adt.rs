@@ -57,6 +57,7 @@ use middle::trans::machine;
 use middle::trans::type_of;
 use middle::ty;
 use middle::ty::Disr;
+use syntax::abi::{X86, X86_64, Arm, Mips};
 use syntax::ast;
 use syntax::attr;
 use syntax::attr::IntType;
@@ -239,6 +240,15 @@ fn mk_cenum(cx: @CrateContext, hint: Hint, lo: i64, hi: i64) -> Repr {
 }
 
 fn range_to_inttype(cx: @CrateContext, hint: Hint, lo: i64, hi: i64) -> IntType {
+    // Lists of sizes to try.  i64 is always allowed as a fallback.
+    static choose_shortest: &'static[IntType] = &[
+        attr::SignedInt(ast::ty_i8), attr::UnsignedInt(ast::ty_u8),
+        attr::SignedInt(ast::ty_i16), attr::UnsignedInt(ast::ty_u16),
+        attr::SignedInt(ast::ty_i32), attr::UnsignedInt(ast::ty_u32)];
+    static at_least_32: &'static[IntType] = &[
+        attr::SignedInt(ast::ty_i32), attr::UnsignedInt(ast::ty_u32)];
+
+    let attempts;
     match hint {
         attr::ReprInt(span, ity) => {
             if !(in_inttype(cx, ity, lo) && in_inttype(cx, ity, hi)) {
@@ -246,21 +256,28 @@ fn range_to_inttype(cx: @CrateContext, hint: Hint, lo: i64, hi: i64) -> IntType 
             }
             return ity;
         }
-        attr::ReprAny => {
-            static attempts: &'static[IntType] = &[
-                attr::SignedInt(ast::ty_i8), attr::UnsignedInt(ast::ty_u8),
-                attr::SignedInt(ast::ty_i16), attr::UnsignedInt(ast::ty_u16),
-                attr::SignedInt(ast::ty_i32), attr::UnsignedInt(ast::ty_u32)];
-            let mut best = attr::SignedInt(ast::ty_i64);
-            for attempts.each |&ity| {
-                if in_inttype(cx, ity, lo) && in_inttype(cx, ity, hi) {
-                    best = ity;
-                    break;
-                }
+        attr::ReprExtern => {
+            attempts = match cx.sess.targ_cfg.arch {
+                X86 | X86_64 => at_least_32,
+                // WARNING: the ARM EABI has two variants; the one corresponding to `at_least_32`
+                // appears to be used on Linux and NetBSD, but some systems may use the variant
+                // corresponding to `choose_shortest`.  However, we don't run on those yet...?
+                Arm => at_least_32,
+                Mips => at_least_32,
             }
-            return best;
+        }
+        attr::ReprAny => {
+            attempts = choose_shortest;
         }
     }
+    let mut best = attr::SignedInt(ast::ty_i64);
+    for attempts.each |&ity| {
+        if in_inttype(cx, ity, lo) && in_inttype(cx, ity, hi) {
+            best = ity;
+            break;
+        }
+    }
+    return best;
 }
 
 fn ll_inttype(cx: @CrateContext, ity: IntType) -> TypeRef {
