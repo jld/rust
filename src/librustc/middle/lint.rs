@@ -26,9 +26,11 @@ use std::u64;
 use std::u8;
 use extra::smallintmap::SmallIntMap;
 use syntax::attr;
+use syntax::attr::ReprAttr;
 use syntax::codemap::span;
 use syntax::codemap;
 use syntax::{ast, visit, ast_util};
+use syntax::print::pprust;
 
 /**
  * A 'lint' check is a kind of miscellaneous constraint that a user _might_
@@ -138,7 +140,7 @@ static lint_table: &'static [(&'static str, LintSpec)] = &[
      LintSpec {
         lint: ctypes,
         desc: "proper use of std::libc types in foreign modules",
-        default: warn
+        default: deny
      }),
 
     ("unused_imports",
@@ -738,7 +740,22 @@ fn check_item_ctypes(cx: &Context, it: &ast::item) {
                                 "found rust type `uint` in foreign module, while \
                                 libc::c_uint or libc::c_ulong should be used");
                     }
-                    _ => ()
+                    ast::def_ty(def_id) => {
+                        match ty::get(ty::lookup_item_type(cx.tcx, def_id).ty).sty {
+                            ty::ty_enum(*) => {
+                                if !ty::lookup_repr_hint(cx.tcx, def_id).is_ffi_safe() {
+                                    cx.span_lint(ctypes, ty.span,
+                                                 "found enum type without foreign-function-safe \
+                                                  representation annotation in foreign module");
+                                    // NOTE give more useful advice
+                                }
+                            }
+                            _ => {}
+                        }
+                    }
+                    other_def => info!("type %s = def %?",
+                                       pprust::ty_to_str(*ty, cx.tcx.sess.parse_sess.interner),
+                                       other_def);
                 }
             }
             _ => ()
