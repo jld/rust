@@ -3959,6 +3959,15 @@ pub fn lookup_simd(tcx: ctxt, did: def_id) -> bool {
     has_attr(tcx, did, "simd")
 }
 
+// Obtain the the representation annotation for a definition.
+pub fn lookup_repr_hint(tcx: ctxt, did: ast::def_id) -> attr::ReprAttr {
+    let mut acc = attr::ReprAny;
+    for ty::each_attr(tcx, did) |meta| {
+        acc= attr::find_repr_attr(tcx.sess.diagnostic(), meta, acc)
+    }
+    return acc;
+}
+
 // Look up a field ID, whether or not it's local
 // Takes a list of type substs in case the struct is generic
 pub fn lookup_field_type(tcx: ctxt,
