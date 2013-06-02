@@ -743,12 +743,14 @@ fn check_item_ctypes(cx: &Context, it: &ast::item) {
                     ast::def_ty(def_id) => {
                         match ty::get(ty::lookup_item_type(cx.tcx, def_id).ty).sty {
                             ty::ty_enum(*) => {
-                                if !ty::lookup_repr_hint(cx.tcx, def_id).is_ffi_safe() {
+                                // Should the test for univariant(/nilvariant)ness be here?
+                                if ty::enum_variants(cx.tcx, def_id).len() >= 2 &&
+                                    !ty::lookup_repr_hint(cx.tcx, def_id).is_ffi_safe() {
                                     cx.span_lint(ctypes, ty.span,
                                                  "found enum type without foreign-function-safe \
                                                   representation annotation in foreign module");
                                     // NOTE give more useful advice
-                                }
+                                    }
                             }
                             _ => {}
                         }
