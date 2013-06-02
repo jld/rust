@@ -374,7 +374,7 @@ pub fn trans_get_discr(bcx: block, r: &Repr, scrutinee: ValueRef, cast_to: Optio
     let signed;
     let val;
     match *r {
-       CEnum(ity, min, max) => { 
+        CEnum(ity, min, max) => {
             val = load_discr(bcx, scrutinee, min, max);
             signed = ity.is_signed();
         }
@@ -433,11 +433,11 @@ fn load_discr(bcx: block, scrutinee: ValueRef, min: Disr, max: Disr)
 pub fn trans_case(bcx: block, r: &Repr, discr: Disr) -> _match::opt_result {
     match *r {
         CEnum(ity, _, _) => {
-            _match::single_result(rslt(bcx, C_integral(ll_inttype(bcx.ccx(), ity), 
+            _match::single_result(rslt(bcx, C_integral(ll_inttype(bcx.ccx(), ity),
                                                        discr as u64, True)))
         }
         General(ity, _) => {
-            _match::single_result(rslt(bcx, C_integral(ll_inttype(bcx.ccx(), ity), 
+            _match::single_result(rslt(bcx, C_integral(ll_inttype(bcx.ccx(), ity),
                                                        discr as u64, True)))
         }
         Univariant(*) => {
@@ -459,7 +459,7 @@ pub fn trans_start_init(bcx: block, r: &Repr, val: ValueRef, discr: Disr) {
     match *r {
         CEnum(ity, min, max) => {
             assert!(min <= discr && discr <= max);
-            Store(bcx, C_integral(ll_inttype(bcx.ccx(), ity), discr as u64, True), 
+            Store(bcx, C_integral(ll_inttype(bcx.ccx(), ity), discr as u64, True),
                   GEPi(bcx, val, [0, 0]))
         }
         General(ity, _) => {
