@@ -170,7 +170,8 @@ fn represent_type_uncached(cx: @CrateContext, t: ty::t) -> Repr {
             if cases.all(|c| c.tys.len() == 0) {
                 // All bodies empty -> intlike
                 let discrs = cases.map(|c| c.discr);
-                return mk_cenum(cx, hint_of_def(cx, def_id), discrs.min(), discrs.max());
+                return mk_cenum(cx, ty::lookup_repr_hint(cx.tcx, def_id),
+                                discrs.min(), discrs.max());
             }
 
             if cases.len() == 1 {
@@ -209,7 +210,8 @@ fn represent_type_uncached(cx: @CrateContext, t: ty::t) -> Repr {
             }
 
             // The general case.
-            let ity = range_to_inttype(cx, hint_of_def(cx, def_id), 0, (cases.len() - 1) as i64);
+            let ity = range_to_inttype(cx, ty::lookup_repr_hint(cx.tcx, def_id),
+                                       0, (cases.len() - 1) as i64);
             let discr = ~[ty_of_inttype(ity)];
             return General(ity, cases.map(|c| mk_struct(cx, discr + c.tys, false)))
         }
@@ -277,14 +279,6 @@ fn ty_of_inttype(ity: IntType) -> ty::t {
         attr::SignedInt(t) => ty::mk_mach_int(t),
         attr::UnsignedInt(t) => ty::mk_mach_uint(t)
     }
-}
-
-fn hint_of_def(cx: @CrateContext, did: ast::def_id) -> Hint {
-    let mut hint = attr::ReprAny;
-    for ty::each_attr(cx.tcx, did) |meta| {
-        hint = attr::find_repr_attr(cx.sess.diagnostic(), meta, hint)
-    }
-    return hint;
 }
 
 /**
