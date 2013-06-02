@@ -24,7 +24,7 @@ mod libc {
     #[abi = "cdecl"]
     #[nolink]
     pub extern {
-        pub fn write(fd: int, buf: *u8, count: ::std::libc::size_t)
+        pub fn write(fd: ::std::libc::c_int, buf: *u8, count: ::std::libc::size_t)
                   -> ::std::libc::ssize_t;
     }
 }

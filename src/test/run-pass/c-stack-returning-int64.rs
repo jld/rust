@@ -14,16 +14,16 @@ mod libc {
     #[abi = "cdecl"]
     #[nolink]
     pub extern {
-        pub fn atol(x: *u8) -> int;
-        pub fn atoll(x: *u8) -> i64;
+        pub fn atol(x: *u8) -> ::std::libc::c_long;
+        pub fn atoll(x: *u8) -> ::std::libc::c_longlong;
     }
 }
 
-fn atol(s: ~str) -> int {
+fn atol(s: ~str) -> std::libc::c_long {
     return str::as_buf(s, { |x, _len| unsafe { libc::atol(x) } });
 }
 
-fn atoll(s: ~str) -> i64 {
+fn atoll(s: ~str) -> std::libc::c_longlong {
     return str::as_buf(s, { |x, _len| unsafe { libc::atoll(x) } });
 }
 
