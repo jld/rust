@@ -383,11 +383,11 @@ pub fn trans_get_discr(bcx: block, r: &Repr, scrutinee: ValueRef, cast_to: Optio
     let val;
     match *r {
         CEnum(ity, min, max) => {
-            val = load_discr(bcx, scrutinee, min, max);
+            val = load_discr(bcx, ity, scrutinee, min, max);
             signed = ity.is_signed();
         }
         General(ity, ref cases) => {
-            val = load_discr(bcx, scrutinee, 0, (cases.len() - 1) as Disr);
+            val = load_discr(bcx, ity, scrutinee, 0, (cases.len() - 1) as Disr);
             signed = ity.is_signed();
         }
         Univariant(*) => {
@@ -414,10 +414,14 @@ fn nullable_bitdiscr(bcx: block, nonnull: &Struct, nndiscr: Disr, ptrfield: uint
 }
 
 /// Helper for cases where the discriminant is simply loaded.
-fn load_discr(bcx: block, scrutinee: ValueRef, min: Disr, max: Disr)
-    -> ValueRef {
+fn load_discr(bcx: block, ity: IntType, scrutinee: ValueRef,
+              min: Disr, max: Disr) -> ValueRef {
     let ptr = GEPi(bcx, scrutinee, [0, 0]);
-    if max + 1 == min { // FIXME: this isn't right anymore
+    let llty = ll_inttype(bcx.ccx(), ity);
+    assert_eq!(val_ty(ptr), T_ptr(llty));
+    let bits = machine::llbitsize_of_real(bcx.ccx(), llty);
+    let mask = if bits < 64 { (1i64 << bits) - 1 } else { -1i64 };
+    if (max + 1) & mask == min & mask {
         // i.e., if the range is everything.  The lo==hi case would be
         // rejected by the LLVM verifier (it would mean either an
         // empty set, which is impossible, or the entire range of the
