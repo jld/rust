@@ -103,7 +103,7 @@ mod test {
 
     use util::enum_set::*;
 
-    #[deriving(Eq)]
+    #[deriving(Eq)] #[repr(uint)]
     enum Foo {
         A, B, C
     }
