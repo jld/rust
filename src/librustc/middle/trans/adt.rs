@@ -305,7 +305,7 @@ pub fn trans_get_discr(bcx: block, r: &Repr, scrutinee: ValueRef)
     -> ValueRef {
     match *r {
         CEnum(min, max) => load_discr(bcx, scrutinee, min, max),
-        Univariant(*) => C_int(bcx.ccx(), 0),
+        Univariant(*) => C_u8(0),
         General(ref cases) => load_discr(bcx, scrutinee, 0,
                                          (cases.len() - 1) as Disr),
         NullablePointer{ nonnull: ref nonnull, nndiscr, ptrfield, _ } => {
@@ -327,7 +327,7 @@ fn nullable_bitdiscr(bcx: block, nonnull: &Struct, nndiscr: Disr, ptrfield: uint
 fn load_discr(bcx: block, scrutinee: ValueRef, min: Disr, max: Disr)
     -> ValueRef {
     let ptr = GEPi(bcx, scrutinee, [0, 0]);
-    if max + 1 == min {
+    if max + 1 == min { // FIXME: this isn't right anymore
         // i.e., if the range is everything.  The lo==hi case would be
         // rejected by the LLVM verifier (it would mean either an
         // empty set, which is impossible, or the entire range of the
