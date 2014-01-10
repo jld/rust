@@ -375,6 +375,8 @@ pub fn ty_of_inttype(ity: IntType) -> ty::t {
  *
  * C-like enums need to be actual ints, not wrapped in a struct,
  * because that changes the ABI on some platforms (see issue #10308).
+ * Nullable pointers, if the nonnull case has only one field, have
+ * the same issue (see issues #11040 and #11303).
  *
  * For nominal types, in some cases, we need to use LLVM named structs
  * and fill in the actual contents in a second pass to prevent
@@ -392,6 +394,7 @@ pub fn incomplete_type_of(cx: &CrateContext, r: &Repr, name: &str) -> Type {
 pub fn finish_type_of(cx: &CrateContext, r: &Repr, llty: &mut Type) {
     match *r {
         CEnum(..) | General(..) => { }
+        NullablePointer{ nonnull: ref st, .. } if st.fields.len() == 1 => { }
         Univariant(ref st, _) | NullablePointer{ nonnull: ref st, .. } =>
             llty.set_struct_body(struct_llfields(cx, st, false), st.packed)
     }
@@ -400,6 +403,9 @@ pub fn finish_type_of(cx: &CrateContext, r: &Repr, llty: &mut Type) {
 fn generic_type_of(cx: &CrateContext, r: &Repr, name: Option<&str>, sizing: bool) -> Type {
     match *r {
         CEnum(ity, _, _) => ll_inttype(cx, ity),
+        NullablePointer{ nonnull: ref st, .. } if st.fields.len() == 1 => {
+            type_of::sizing_type_of(cx, st.fields[0])
+        }
         Univariant(ref st, _) | NullablePointer{ nonnull: ref st, .. } => {
             match name {
                 None => Type::struct_(struct_llfields(cx, st, sizing), st.packed),
@@ -513,9 +519,12 @@ pub fn trans_get_discr(bcx: &Block, r: &Repr, scrutinee: ValueRef, cast_to: Opti
 fn nullable_bitdiscr(bcx: &Block, nonnull: &Struct, nndiscr: Disr, ptrfield: uint,
                      scrutinee: ValueRef) -> ValueRef {
     let cmp = if nndiscr == 0 { IntEQ } else { IntNE };
-    let llptr = Load(bcx, GEPi(bcx, scrutinee, [0, ptrfield]));
-    let llptrty = type_of::type_of(bcx.ccx(), nonnull.fields[ptrfield]);
-    ICmp(bcx, cmp, llptr, C_null(llptrty))
+    let llptr = if nonnull.fields.len() == 1 {
+        Load(bcx, scrutinee)
+    } else {
+        Load(bcx, GEPi(bcx, scrutinee, [0, ptrfield]))
+    };
+    ICmp(bcx, cmp, llptr, C_null(val_ty(llptr)))
 }
 
 /// Helper for cases where the discriminant is simply loaded.
@@ -594,8 +603,12 @@ pub fn trans_start_init(bcx: &Block, r: &Repr, val: ValueRef, discr: Disr) {
         }
         NullablePointer{ nonnull: ref nonnull, nndiscr, ptrfield, .. } => {
             if discr != nndiscr {
-                let llptrptr = GEPi(bcx, val, [0, ptrfield]);
                 let llptrty = type_of::type_of(bcx.ccx(), nonnull.fields[ptrfield]);
+                let llptrptr = if nonnull.fields.len() == 1 {
+                    PointerCast(bcx, val, llptrty.ptr_to())
+                } else {
+                    GEPi(bcx, val, [0, ptrfield])
+                };
                 Store(bcx, C_null(llptrty), llptrptr)
             }
         }
@@ -648,7 +661,7 @@ pub fn trans_field_ptr(bcx: &Block, r: &Repr, val: ValueRef, discr: Disr,
         NullablePointer{ nonnull: ref nonnull, nullfields: ref nullfields,
                          nndiscr, .. } => {
             if (discr == nndiscr) {
-                struct_field_ptr(bcx, nonnull, val, ix, false)
+                struct_field_ptr(bcx, nonnull, val, ix, nonnull.fields.len() == 1)
             } else {
                 // The unit-like case might have a nonzero number of unit-like fields.
                 // (e.g., Result or Either with () as one side.)
